@@ -28,7 +28,6 @@ class Clip(models.Model):
     body = models.TextField()
     start_time = models.IntegerField()
     end_time = models.IntegerField()
-    duration = models.IntegerField()
     audio_bucket_key = models.CharField(max_length=255)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)

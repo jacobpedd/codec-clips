@@ -15,6 +15,14 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
+# install ffmpeg dependencies
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gcc \
+    ffmpeg \
+    libavcodec-extra \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt /tmp/requirements.txt
 RUN set -ex && \
     pip install --upgrade pip && \

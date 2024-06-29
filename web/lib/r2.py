@@ -1,3 +1,4 @@
+import os
 import hashlib
 import json
 import boto3
@@ -54,6 +55,43 @@ def handle_r2_audio_upload(audio_url: str) -> str:
     return audio_bucket_key
 
 
+def download_audio_file(audio_bucket_key: str) -> str:
+    """
+    Download the audio file from R2 and process clips.
+
+    Args:
+        audio_bucket_key (str): The key of the audio file in the R2 bucket.
+        clips (list): List of clip objects to process.
+
+    Raises:
+        Exception: If there's an error downloading or processing the audio file.
+    """
+    audio_file_path = f"/tmp/{audio_bucket_key}"
+    os.makedirs(os.path.dirname(audio_file_path), exist_ok=True)
+
+    try:
+        # Download the file directly using boto3
+        r2.download_file(bucket_name, audio_bucket_key, audio_file_path)
+        print(f"Successfully downloaded audio file to {audio_file_path}")
+        return audio_file_path
+    except ClientError as e:
+        print(f"Error downloading audio file: {str(e)}")
+        raise
+    except Exception as e:
+        print(f"Unexpected error in generate_clips_audio: {str(e)}")
+        raise
+
+
+def upload_file_to_r2(file_path: str, bucket_key: str):
+    try:
+        with open(file_path, "rb") as file:
+            r2.upload_fileobj(file, bucket_name, bucket_key)
+        print(f"Successfully uploaded {file_path} to R2 with key {bucket_key}")
+    except Exception as e:
+        print(f"Error uploading file to R2: {str(e)}")
+        raise
+
+
 def handle_r2_transcript_upload(transcript, audio_bucket_key) -> str:
     """
     Check if the transcript exists in the R2 bucket and upload if it doesn't.
@@ -91,7 +129,7 @@ def handle_r2_transcript_upload(transcript, audio_bucket_key) -> str:
     return transcript_bucket_key
 
 
-def get_audio_transcript(audio_bucket_key: str) -> bool:
+def get_audio_transcript_key(audio_bucket_key: str) -> bool:
     """
     Check if the audio file has been transcribed in the R2 bucket.
 
@@ -116,3 +154,46 @@ def get_audio_transcript(audio_bucket_key: str) -> bool:
             return None
         else:
             raise
+
+
+def get_audio_transcript(transcript_bucket_key: str):
+    """
+    Retrieve and parse the audio transcript from the R2 bucket.
+
+    Args:
+        transcript_bucket_key (str): The key of the transcript in the R2 bucket.
+
+    Returns:
+        dict: The parsed transcript JSON, or None if not found or on error.
+
+    Raises:
+        Exception: If there's an error retrieving or parsing the transcript.
+    """
+    try:
+        # Retrieve the transcript object
+        response = r2.get_object(Bucket=bucket_name, Key=transcript_bucket_key)
+
+        # Read the content of the object
+        transcript_content = response["Body"].read().decode("utf-8")
+
+        print(f"Retrieved transcript content for key: {transcript_bucket_key}")
+
+        # Parse the JSON content
+        transcript_json = json.loads(transcript_content)
+        return transcript_json
+
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "NoSuchKey":
+            print(f"Transcript not found for key: {transcript_bucket_key}")
+            return None
+        else:
+            print(f"Error retrieving transcript: {str(e)}")
+            raise
+
+    except json.JSONDecodeError as e:
+        print(f"Error parsing transcript JSON: {str(e)}")
+        return None
+
+    except Exception as e:
+        print(f"Unexpected error in get_audio_transcript: {str(e)}")
+        raise

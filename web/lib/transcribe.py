@@ -1,6 +1,6 @@
 from django.conf import settings
 import assemblyai as aai
-from web.lib.r2 import get_audio_transcript, handle_r2_transcript_upload
+from web.lib.r2 import get_audio_transcript_key, handle_r2_transcript_upload
 
 aai.settings.api_key = settings.ASSEMBLYAI_API_KEY
 transcriber = aai.Transcriber()
@@ -12,7 +12,7 @@ config = aai.TranscriptionConfig(
 def transcribe(audio_bucket_key: str) -> str:
     """Transcribe the audio file and return the transcript."""
     # Check if the audio file has been transcribed already
-    transcript_bucket_key = get_audio_transcript(audio_bucket_key)
+    transcript_bucket_key = get_audio_transcript_key(audio_bucket_key)
     if transcript_bucket_key:
         return transcript_bucket_key
 
