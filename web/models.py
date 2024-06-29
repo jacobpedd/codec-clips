@@ -13,7 +13,7 @@ class Feed(models.Model):
 class FeedItem(models.Model):
     name = models.CharField(max_length=255)
     body = models.TextField()
-    audio_url = models.URLField()
+    audio_url = models.URLField(max_length=2000)
     audio_bucket_key = models.CharField(max_length=255)
     duration = models.IntegerField()
     posted_at = models.DateTimeField()
