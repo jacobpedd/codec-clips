@@ -1,3 +1,5 @@
+import hashlib
+import json
 import boto3
 import requests
 from django.conf import settings
@@ -15,13 +17,12 @@ r2 = boto3.client(
 bucket_name = settings.R2_BUCKET_NAME
 
 
-def handle_r2_upload(audio_url: str) -> str:
+def handle_r2_audio_upload(audio_url: str) -> str:
     """
     Check if the audio file exists in the R2 bucket and upload if it doesn't.
 
     Args:
         audio_url (str): The URL of the audio file to upload.
-        bucket_name (str): The name of the R2 bucket.
 
     Returns:
         str: The key of the file in the R2 bucket.
@@ -29,7 +30,8 @@ def handle_r2_upload(audio_url: str) -> str:
     Raises:
         Exception: If there's an error checking the bucket or uploading the file.
     """
-    audio_bucket_key = f"audio-{audio_url.split('/')[-1]}"
+    url_hash = hashlib.md5(audio_url.encode()).hexdigest()
+    audio_bucket_key = f"audio-{url_hash}"
 
     try:
         # Check if the file already exists in the R2 bucket
@@ -50,3 +52,67 @@ def handle_r2_upload(audio_url: str) -> str:
             raise
 
     return audio_bucket_key
+
+
+def handle_r2_transcript_upload(transcript, audio_bucket_key) -> str:
+    """
+    Check if the transcript exists in the R2 bucket and upload if it doesn't.
+
+    Args:
+        transcript (obj): The transcript to upload.
+        audio_bucket_key (str): The key of the audio file in the R2 bucket.
+
+    Returns:
+        str: The key of the transcript in the R2 bucket.
+
+    Raises:
+        Exception: If there's an error checking the bucket or uploading the transcript.
+    """
+    transcript_bucket_key = audio_bucket_key.replace("audio-", "transcript-")
+
+    try:
+        # Check if the transcript already exists in the R2 bucket
+        r2.head_object(Bucket=bucket_name, Key=transcript_bucket_key)
+        print(f"Transcript already exists in R2: {transcript_bucket_key}")
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "404":
+            # Turn the transcript object into a json string
+            transcript_json = json.dumps(transcript)
+            # Upload the transcript to the R2 bucket
+            r2.put_object(
+                Body=transcript_json,
+                Bucket=bucket_name,
+                Key=transcript_bucket_key,
+            )
+            print(f"Uploaded transcript to R2: {transcript_bucket_key}")
+        else:
+            raise
+
+    return transcript_bucket_key
+
+
+def get_audio_transcript(audio_bucket_key: str) -> bool:
+    """
+    Check if the audio file has been transcribed in the R2 bucket.
+
+    Args:
+        audio_bucket_key (str): The key of the audio file in the R2 bucket.
+
+    Returns:
+        transcript_bucket_key (str): The key of the transcript in the R2 bucket.
+
+    Raises:
+        Exception: If there's an error checking the bucket.
+    """
+    transcript_bucket_key = audio_bucket_key.replace("audio-", "transcript-")
+
+    try:
+        # Check if the transcript already exists in the R2 bucket
+        r2.head_object(Bucket=bucket_name, Key=transcript_bucket_key)
+        print(f"Transcript already exists in R2: {transcript_bucket_key}")
+        return transcript_bucket_key
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "404":
+            return None
+        else:
+            raise

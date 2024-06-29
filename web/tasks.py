@@ -3,9 +3,10 @@ from datetime import datetime
 from dateutil import parser as date_parser
 from celery import shared_task
 from celery.utils.log import get_task_logger
+from web.lib.transcribe import transcribe
 from web.models import Feed, FeedItem
 from web.lib.parsing import get_duration
-from web.lib.r2 import handle_r2_upload
+from web.lib.r2 import handle_r2_audio_upload
 
 logging = get_task_logger(__name__)
 
@@ -18,23 +19,10 @@ def scrape_all_feeds() -> None:
         rss_feed_scrape_task.delay(feed.id)
 
 
-@shared_task(
-    bind=True,
-    retry_backoff=3,
-    retry_kwargs={
-        "max_retries": 3,
-    },
-)
-def rss_feed_scrape_task(self, feed_id: int) -> None:
+@shared_task
+def rss_feed_scrape_task(feed_id: int) -> None:
     """Scrape and parse the RSS feeds."""
     feed_obj = Feed.objects.get(id=feed_id)
-
-    if self.request.retries > 0:  # Only when retrying
-        logging.info(
-            "[Task Retry] Attempt %d/%d",
-            self.request.retries,
-            self.retry_kwargs["max_retries"],
-        )
     logging.info("[Started] Checking for new episodes from %s ....", feed_obj.name)
 
     # Parse the first entry's audio url
@@ -54,11 +42,11 @@ def rss_feed_scrape_task(self, feed_id: int) -> None:
         published_date = datetime.now()
 
     # Handle R2 upload
-    try:
-        audio_bucket_key = handle_r2_upload(audio_url)
-    except Exception as e:
-        logging.error(f"Failed to handle R2 upload: {str(e)}")
-        raise self.retry(exc=e)
+    audio_bucket_key = handle_r2_audio_upload(audio_url)
+
+    # Transcribe the audio file
+    logging.info("Transcribing %s ....", audio_url)
+    transcript_bucket_key = transcribe(audio_bucket_key)
 
     # Create a new FeedItem
     FeedItem.objects.create(
@@ -66,6 +54,7 @@ def rss_feed_scrape_task(self, feed_id: int) -> None:
         body=entry.get("summary", ""),
         audio_url=audio_url,
         audio_bucket_key=audio_bucket_key,
+        transcript_bucket_key=transcript_bucket_key,
         duration=(
             get_duration(entry["itunes_duration"]) if "itunes_duration" in entry else 0
         ),

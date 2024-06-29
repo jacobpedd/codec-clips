@@ -15,20 +15,12 @@ class FeedItem(models.Model):
     body = models.TextField()
     audio_url = models.URLField(max_length=2000)
     audio_bucket_key = models.CharField(max_length=255)
+    transcript_bucket_key = models.CharField(max_length=255)
     duration = models.IntegerField()
     posted_at = models.DateTimeField()
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     feed = models.ForeignKey(Feed, on_delete=models.CASCADE, related_name="items")
-
-
-class Transcript(models.Model):
-    text_bucket_key = models.CharField(max_length=255, null=True, blank=True)
-    feed_item = models.OneToOneField(
-        FeedItem, on_delete=models.CASCADE, related_name="transcript"
-    )
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
 
 
 class Clip(models.Model):

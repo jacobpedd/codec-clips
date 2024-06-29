@@ -2,7 +2,6 @@ from django.contrib import admin
 from .models import (
     Feed,
     FeedItem,
-    Transcript,
     Clip,
     ClipScore,
     ClipUserScore,
@@ -27,12 +26,6 @@ class FeedItemAdmin(admin.ModelAdmin):
 
     get_feed_name.admin_order_field = "feed__name"
     get_feed_name.short_description = "Feed Name"
-
-
-@admin.register(Transcript)
-class TranscriptAdmin(admin.ModelAdmin):
-    list_display = ("feed_item", "text_bucket_key", "created_at")
-    search_fields = ("feed_item__name", "text_bucket_key")
 
 
 @admin.register(Clip)
