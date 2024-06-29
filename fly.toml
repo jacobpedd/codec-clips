@@ -9,6 +9,11 @@ console_command = '/code/manage.py shell'
 
 [build]
 
+[processes]
+  app = "python -m gunicorn --bind :8000 --workers 2 codec.wsgi"
+  worker = "python -m celery -A codec worker -B -l info"
+  flower = "python -m celery -A codec flower -l info"
+
 [env]
   PORT = '8000'
 
@@ -19,6 +24,22 @@ console_command = '/code/manage.py shell'
   auto_start_machines = true
   min_machines_running = 0
   processes = ['app']
+
+[[services]]
+  http_checks = []
+  internal_port = 5555
+  processes = ["flower"]
+  protocol = "tcp"
+  script_checks = []
+  [services.concurrency]
+    hard_limit = 25 
+    soft_limit = 20 
+    type = "connections"
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 5555
+  
 
 [[vm]]
   memory = '1gb'
