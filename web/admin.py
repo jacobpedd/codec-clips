@@ -18,9 +18,15 @@ class FeedAdmin(admin.ModelAdmin):
 
 @admin.register(FeedItem)
 class FeedItemAdmin(admin.ModelAdmin):
-    list_display = ("name", "feed", "duration", "posted_at", "created_at")
+    list_display = ("name", "get_feed_name", "duration", "posted_at", "created_at")
     list_filter = ("feed", "posted_at")
-    search_fields = ("name", "body")
+    search_fields = ("name", "body", "feed__name")
+
+    def get_feed_name(self, obj):
+        return obj.feed.name
+
+    get_feed_name.admin_order_field = "feed__name"
+    get_feed_name.short_description = "Feed Name"
 
 
 @admin.register(Transcript)
