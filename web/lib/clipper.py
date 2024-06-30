@@ -162,6 +162,22 @@ def suggest_clip(transcript: str):
         stop_sequences=["</CLIPS>"],
         system=system_prompt,
         messages=[
+            {"role": "user", "content": lex_example["content"]},
+            {
+                "role": "assistant",
+                "content": "\n".join([
+                    "I'd be happy to suggest some potential clips from the transcript that could work well as standalone short videos. I'll aim to identify engaging 5-10 minute segments that capture interesting parts of the conversation. Here are 5 suggestions:",
+                    "<CLIPS>",
+                    "[",
+                    f"   {json.dumps(lex_example["clips"][0])}",
+                    f"   {json.dumps(lex_example["clips"][1])}",
+                    f"   {json.dumps(lex_example["clips"][2])}",
+                    f"   {json.dumps(lex_example["clips"][3])}",
+                    f"   {json.dumps(lex_example["clips"][4])}",
+                    "]",
+                    "</CLIPS>",
+                ]),
+            },
             {"role": "user", "content": transcript},
         ],
     )

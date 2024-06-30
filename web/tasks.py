@@ -66,15 +66,16 @@ def rss_feed_scrape_task(feed_id: int) -> None:
     logging.info("[Finished] Scraped new episode: %s", entry.get("title", "Untitled"))
 
 
+# NOTE: This function is triggered from signals.py when a new feed item is created
 @shared_task
 def generate_clips_from_feed_item(feed_item_id: int) -> None:
     feed_item = FeedItem.objects.get(id=feed_item_id)
 
     # Generate clips with LLM
-    # TODO: Make generating clip markers more reliable because it fails a lot
     clips = generate_clips(feed_item.transcript_bucket_key)
 
     # Create clip audio files
+    # TODO: Looks like clip ends aren't lining up with where the LLM instructs it to
     clip_audio_bucket_keys = generate_clips_audio(feed_item.audio_bucket_key, clips)
 
     # Save clips to models
@@ -89,3 +90,11 @@ def generate_clips_from_feed_item(feed_item_id: int) -> None:
         )
 
     logging.info("[Finished] Generating clips for feed item: %s", feed_item.name)
+
+
+@shared_task
+def add_missing_clips() -> None:
+    # Add clips to all feed items that don't have any clips
+    feed_items = FeedItem.objects.filter(clips__isnull=True)
+    for feed_item in feed_items:
+        generate_clips_from_feed_item.delay(feed_item.id)
