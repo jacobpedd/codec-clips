@@ -28,23 +28,25 @@ def generate_clips(transcript_bucket_key: str) -> list[Clip]:
         end_time = -1
 
         for utterance in transcript:
+            words = utterance.get("words", [])
             utterance_text = utterance["text"].lower()
             start_phrase = clip["start"].lower()
             end_phrase = clip["end"].lower()
 
-            if start_time == -1 and utterance_text.lstrip().startswith(start_phrase):
-                start_time = utterance["start"]
+            if start_time == -1:
+                start_index = utterance_text.find(start_phrase)
+                if start_index != -1:
+                    word_start_index = len(utterance_text[:start_index].split())
+                    if word_start_index < len(words):
+                        start_time = words[word_start_index]["start"]
 
-            if start_time == -1 and start_phrase in utterance_text:
-                start_time = utterance["start"]
-
-            if utterance_text.rstrip().endswith(end_phrase):
-                end_time = utterance["end"]
-                break
-
-            if end_phrase in utterance_text:
-                end_time = utterance["end"]
-                break
+            if start_time != -1:
+                end_index = utterance_text.find(end_phrase)
+                if end_index != -1:
+                    word_end_index = len(utterance_text[:end_index].split()) + len(end_phrase.split()) - 1
+                    if word_end_index < len(words):
+                        end_time = words[word_end_index]["end"]
+                        break
 
         if start_time != -1 and end_time != -1:
             print(f"Found start and end times for clip: {clip['name']}")
