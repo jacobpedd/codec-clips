@@ -20,7 +20,7 @@ def scrape_all_feeds() -> None:
         rss_feed_scrape_task.delay(feed.id)
 
 
-@shared_task
+@shared_task(autoretry_for=(IndexError, KeyError), max_retries=3, retry_backoff=30)
 def rss_feed_scrape_task(feed_id: int) -> None:
     """Scrape and parse the RSS feeds."""
     feed_obj = Feed.objects.get(id=feed_id)
