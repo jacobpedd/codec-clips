@@ -110,7 +110,7 @@ def suggest_clips(transcript: str):
                 "The user will provide the transcript in their message.",
                 "You will provide 5 total clips.",
                 "# CLIPS",
-                "Clip are between 2 and 7 minutes long (at least 500 words).",
+                "Clip are between 2 and 10 minutes long (at least 500 words).",
                 "Clips capture interesting takes and the conversation around them.",
                 "Clips do not start or stop in the middle of a thought or statement.",
                 "Clips feel like they have a logical introduction and conclusion.",
@@ -165,7 +165,6 @@ def suggest_clips(transcript: str):
 
     clips = []
     for clip in suggested_clips:
-        print(f"# {clip['name']}\nstart phrase: {clip['start']}\nend phrase: {clip['end']}\n\n")
         try:
             start, end = find_clip_timing(transcript, clip["start"], clip["end"])
             clips.append(Clip(
@@ -264,15 +263,14 @@ def refine_clips(transcript: str, clips: [Clip]) -> list[Clip]:
                     "The ways to edit the content of the clip are changing the start and end phrases that bound the clip.",
                     "You should first critique the clip, the suggest changes to start and end phrases if needed.",
                     "# CLIPS",
-                    "Clip should be between 3 and 10 minutes long (at least 500 words).",
-                    "Clips should capture interesting takes and the conversation around them.",
-                    "Clips should not start or stop in the middle of a thought or statement.",
-                    "Clips should feel like they have a logical introduction and conclusion.",
-                    "Listeners should be able to enjoy the clip without any additional context.",
-                    "Starting abruptly with the introduction of a topic is okay.",
-                    "Clips will be posted on YouTube and we want them to go viral.",
-                    "Content from one clip should not overlap with another clip.",
-                    "Never include podcast intros, outros, or ads in a clip.",
+                    "Clip are between 2 and 10 minutes long (at least 500 words).",
+                    "Clips capture interesting takes and the conversation around them.",
+                    "Clips do not start or stop in the middle of a thought or statement.",
+                    "Clips feel like they have a logical introduction and conclusion.",
+                    "Listeners enjoy listening to the clip without any additional context.",
+                    "Clips will be posted on YouTube and are crafted to go viral.",
+                    "Content from clips does not overlap.",
+                    "Clips never include the show's intros, outros, or ads.",
                     "# RESPONSE FORMAT",
                     "Respond to the following questions:",
                     '1. As a listener, what do you like about the clip?',
@@ -309,7 +307,6 @@ def refine_clips(transcript: str, clips: [Clip]) -> list[Clip]:
             raise ValueError("Empty response from model")
 
         critique_text = critique.content[0].text
-        print("Critique:", critique_text)
 
         # Apply the critique to the clip
         response = client.messages.create(
