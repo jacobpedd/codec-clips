@@ -6,12 +6,28 @@ from django.conf import settings
 
 from web.lib.r2 import download_audio_file, get_audio_transcript, upload_file_to_r2
 
+client = anthropic.Anthropic(
+    api_key=settings.ANTHROPIC_API_KEY,
+    base_url="https://anthropic.hconeai.com/",
+    default_headers={
+        "Helicone-Auth": f"Bearer {settings.HELICONE_API_KEY}",
+        "Helicone-Cache-Enabled": "true",
+        "Helicone-User-Id": "clipper",
+    },
+)
+
 
 class Clip:
-    def __init__(self, name: str, start: float, end: float):
+    def __init__(self, name: str, start: int, end: int, start_phrase: str, end_phrase: str):
         self.name = name
         self.start = start
+        self.start_phrase = start_phrase
         self.end = end
+        self.end_phrase = end_phrase
+    
+    def overlaps_with(self, start: int, end: int) -> bool:
+        # Check if there's any overlap between the clip and the given range
+        return max(self.start, start) < min(self.end, end)
 
 
 def generate_clips(transcript_bucket_key: str) -> list[Clip]:
@@ -19,43 +35,8 @@ def generate_clips(transcript_bucket_key: str) -> list[Clip]:
     if not transcript:
         raise ValueError("Transcript not found")
 
-    formatted_transcript = format_transcript(transcript)
-    suggested_clips = suggest_clip(formatted_transcript)
-
-    clips = []
-    for clip in suggested_clips:
-        start_time = -1
-        end_time = -1
-
-        for utterance in transcript:
-            words = utterance.get("words", [])
-            utterance_text = utterance["text"].lower()
-            start_phrase = clip["start"].lower()
-            end_phrase = clip["end"].lower()
-
-            if start_time == -1:
-                start_index = utterance_text.find(start_phrase)
-                if start_index != -1:
-                    word_start_index = len(utterance_text[:start_index].split())
-                    if word_start_index < len(words):
-                        start_time = words[word_start_index]["start"]
-
-            if start_time != -1:
-                end_index = utterance_text.find(end_phrase)
-                if end_index != -1:
-                    word_end_index = len(utterance_text[:end_index].split()) + len(end_phrase.split()) - 1
-                    if word_end_index < len(words):
-                        end_time = words[word_end_index]["end"]
-                        break
-
-        if start_time != -1 and end_time != -1:
-            print(f"Found start and end times for clip: {clip['name']}")
-            clips.append(Clip(name=clip["name"], start=start_time, end=end_time))
-        else:
-            missing_phrase = "start" if start_time == -1 else "end"
-            print(
-                f"Could not find {missing_phrase} time for clip: {clip['name']}. Phrase: \"{clip[missing_phrase]}\""
-            )
+    clips = suggest_clips(transcript)
+    clips = refine_clips(transcript, clips)
 
     return clips
 
@@ -68,40 +49,24 @@ def generate_clips_audio(audio_bucket_key: str, clips: list[Clip]):
     clip_bucket_keys = []
 
     try:
-        for i, clip in enumerate(clips):
-            output_filename = f"clip_{i}_{clip.name.replace(' ', '_')}.mp3"
-            output_path = os.path.join("/tmp", output_filename)
-
-            # Convert milliseconds to seconds
-            start_seconds = clip.start / 1000.0
-            duration_seconds = (clip.end - clip.start) / 1000.0
-
-            # Use ffmpeg to create the clip
+        for clip in clips:
             try:
-                (
-                    ffmpeg.input(audio_file_path, ss=start_seconds, t=duration_seconds)
-                    .output(output_path, acodec="libmp3lame", ab="128k")
-                    .overwrite_output()
-                    .run(capture_stdout=True, capture_stderr=True)
-                )
-                print(f"Created clip: {output_filename}")
+                # Use ffmpeg to create the clip
+                clip_file_path = save_clip_audio("/tmp/", audio_file_path, clip)
 
                 # Upload the clip to R2
                 clip_key = (
-                    f"clip-{os.path.basename(audio_bucket_key)}-{output_filename}"
+                    f"clip-{os.path.basename(audio_bucket_key)}-{clip_file_path}"
                 )
-                upload_file_to_r2(output_path, clip_key)
+                upload_file_to_r2(clip_file_path, clip_key)
                 print(f"Uploaded clip to R2: {clip_key}")
 
                 clip_bucket_keys.append(clip_key)
-
-            except ffmpeg.Error as e:
-                print(f"Error creating clip {clip.name}: {e.stderr.decode()}")
             finally:
                 # Clean up the temporary clip file
-                if os.path.exists(output_path):
-                    os.remove(output_path)
-                print("")
+                if os.path.exists(clip_file_path):
+                    os.remove(clip_file_path)
+                    print(f"Cleaned up temporary clip file: {clip_file_path}")
 
     finally:
         # Clean up the temporary input audio file
@@ -111,65 +76,65 @@ def generate_clips_audio(audio_bucket_key: str, clips: list[Clip]):
 
     return clip_bucket_keys
 
+def save_clip_audio(output_dir, audio_file_path: str, clip: Clip):
+    output_filename = f"clip_{clip.name.replace(' ', '_')}.mp3"
+    output_path = os.path.join(output_dir, output_filename)
 
-def format_transcript(transcript):
-    formatted_transcript = ""
-    for utterance in transcript:
-        formatted_transcript += f"# Speaker {utterance['speaker']}\n"
-        formatted_transcript += f"{utterance['text']}\n\n"
-    return formatted_transcript
+    # Convert milliseconds to seconds
+    start_seconds = clip.start / 1000.0
+    duration_seconds = (clip.end - clip.start) / 1000.0
 
+    # Use ffmpeg to create the clip
+    (
+        ffmpeg.input(audio_file_path, ss=start_seconds, t=duration_seconds)
+        .output(output_path, acodec="libmp3lame", ab="128k")
+        .overwrite_output()
+        .run(capture_stdout=True, capture_stderr=True)
+    )
 
-def suggest_clip(transcript: str):
+    return output_path
+
+def suggest_clips(transcript: str):
     if not settings.ANTHROPIC_API_KEY:
         raise ValueError("ANTHROPIC_API_KEY is not set")
-
-    client = anthropic.Anthropic(
-        api_key=settings.ANTHROPIC_API_KEY,
-        base_url="https://anthropic.hconeai.com/",
-        default_headers={
-            "Helicone-Auth": f"Bearer {settings.HELICONE_API_KEY}",
-            "Helicone-Cache-Enabled": "true",
-            "Helicone-User-Id": "clipper",
-        },
-    )
-
-    system_prompt = "\n".join(
-        [
-            "You are a helpful assistant who generates clips from podcasts.",
-            "# TASK",
-            "Help the user by suggesting clips based on the podcast transcript.",
-            "The user will provide the transcript in their message.",
-            "You should provide 5 total clips.",
-            "# CLIPS",
-            "Each clip should be between 3 and 10 minutes long.",
-            "The clips should be highly entertaining and stand on their own.",
-            "The clips will be posted on YouTube and we want them to go viral.",
-            "The clips should be non-overlapping.",
-            "Include enough context in the clip so the user can follow the conversation.",
-            "Don't include podcast intros, outros, or ads because audiences find them boring.",
-            "# RESPONSE FORMAT",
-            "Your response should contain <CLIPS></CLIPS> inside of which you should put your JSON array of clips.",
-            "Each clip should be a JSON object with the following keys: name, start, and end.",
-            "- name: The name of the clip",
-            "- start: A unique, verbatim 10-15 word phrase that starts the clip",
-            "- end: A unique, verbatim 10-15 word phrase that ends the clip",
-            "Start and end phrases must be exact matches from transcript otherwise it will cause an error.",
-        ]
-    )
 
     completion = client.messages.create(
         model="claude-3-5-sonnet-20240620",
         max_tokens=1000,
         stop_sequences=["</CLIPS>"],
-        system=system_prompt,
+        system="\n".join(
+            [
+                "You are a helpful assistant who identifies social media clips in podcast transcripts.",
+                "# TASK",
+                "You are helping the user, the podcast host, by finding clips within their show's transcripts.",
+                "The user will provide the transcript in their message.",
+                "You will provide 5 total clips.",
+                "# CLIPS",
+                "Clip are between 2 and 7 minutes long (at least 500 words).",
+                "Clips capture interesting takes and the conversation around them.",
+                "Clips do not start or stop in the middle of a thought or statement.",
+                "Clips feel like they have a logical introduction and conclusion.",
+                "Listeners enjoy listening to the clip without any additional context.",
+                "Clips will be posted on YouTube and are crafted to go viral.",
+                "Content from clips does not overlap.",
+                "Clips never include the show's intros, outros, or ads.",
+                "# RESPONSE FORMAT",
+                "Your response should contain <CLIPS></CLIPS> inside of which you should put your JSON array of clips.",
+                "Each clip should be a JSON object with the following keys: name, start, and end.",
+                "- name: The name of the clip",
+                "- start: A unique short string that marks the start of the clip",
+                "- end: A unique short string that marks the end of the clip",
+                "A python script will look for start and end phrases in the transcript.",
+            ]
+        ),
         messages=[
-            {"role": "user", "content": lex_example["content"]},
+            {"role": "user", "content": f"Here is my show's transcript, can you suggest 5 clips for YouTube?\n<TRANSCRIPT>\n{lex_example['content']}\n</TRANSCRIPT>"},
+            {"role": "assistant", "content": "I understand. I'll be happy to assist you while being careful not to reproduce any copyrighted material. I'll focus on summarizing and discussing the content rather than directly quoting large sections. Please let me know if you have any specific questions about the podcast transcript that I can help with."},
+            {"role": "user", "content": "Thank you for not reproducing any copyright material. Please proceed by suggesting 5 clips for YouTube."},
             {
                 "role": "assistant",
                 "content": "\n".join([
-                    "I'd be happy to suggest some potential clips from the transcript that could work well as standalone short videos. I'll aim to identify engaging 5-10 minute segments that capture interesting parts of the conversation. Here are 5 suggestions:",
-                    "<CLIPS>",
+                    "Sure, here are 5 clips from the show that will work well on YouTube:\n<CLIPS>",
                     "[",
                     f"   {json.dumps(lex_example["clips"][0])}",
                     f"   {json.dumps(lex_example["clips"][1])}",
@@ -180,7 +145,7 @@ def suggest_clip(transcript: str):
                     "</CLIPS>",
                 ]),
             },
-            {"role": "user", "content": transcript},
+            {"role": "user", "content": f"<TRANSCRIPT>\n{format_transcript(transcript)}\n</TRANSCRIPT>"},
         ],
     )
 
@@ -193,13 +158,267 @@ def suggest_clip(transcript: str):
         text += "</CLIPS>"
 
     if "<CLIPS>" not in text or "</CLIPS>" not in text:
-        raise ValueError("Clip markers not found in response")
+        raise ValueError("<CLIPS> or </CLIPS> not found in response:\n" + text)
 
     clips_json = text.split("<CLIPS>")[1].split("</CLIPS>")[0]
-    clips = json.loads(clips_json)
+    suggested_clips = json.loads(clips_json)
+
+    clips = []
+    for clip in suggested_clips:
+        print(f"# {clip['name']}\nstart phrase: {clip['start']}\nend phrase: {clip['end']}\n\n")
+        try:
+            start, end = find_clip_timing(transcript, clip["start"], clip["end"])
+            clips.append(Clip(
+                clip["name"], 
+                start, 
+                end, 
+                clip["start"], 
+                clip["end"]
+            ))
+        except ValueError as e:
+            print(f"Error finding clip timing: {json.dumps(clip, indent=2)}")
+            continue
 
     return clips
 
+def refine_clips(transcript: str, clips: [Clip]) -> list[Clip]:
+    refined_clips = []
+
+    # Add global word index to each word in the transcript
+    word_index = 0
+    for utterance in transcript:
+        for word in utterance["words"]:
+            word["word_index"] = word_index
+            word_index += 1
+
+    total_words = word_index  # Total number of words in the transcript
+
+    for clip in clips:
+        start_word_index = -1
+        end_word_index = -1
+
+        # Find the start and end word indices of the clip
+        clip_transcript = ""
+        for utterance in transcript:
+            if clip.overlaps_with(utterance["start"], utterance["end"]):
+                clip_transcript += f"# Speaker {utterance['speaker']}\n"
+                
+                words = [
+                    word for word in utterance["words"] 
+                    if clip.overlaps_with(word["start"], word["end"])
+                ]
+
+                if start_word_index == -1:
+                    start_word_index = words[0]["word_index"]
+                end_word_index = words[-1]["word_index"]
+                
+                text = " ".join([word["text"] for word in words])
+                clip_transcript += f"{text}\n\n"
+
+        # Add N words of context to the start and end of the clip
+        context_length = 1000
+        start_context_start_index = max(0, start_word_index - context_length)
+        start_context_end_index = start_word_index - 1
+
+        end_context_start_index = end_word_index + 1
+        end_context_end_index = min(total_words - 1, end_word_index + context_length)
+
+        def get_transcript_between_indices(start_index, end_index):
+            transcript_between_indices = ""
+            for utterance in transcript:
+                utterance_start_index = utterance["words"][0]["word_index"]
+                utterance_end_index = utterance["words"][-1]["word_index"]
+                
+                # Check if there's any overlap between the utterance and the desired range
+                if start_index <= utterance_end_index and end_index >= utterance_start_index:
+                    transcript_between_indices += f"# Speaker {utterance['speaker']}\n"
+                    words_in_range = [word for word in utterance["words"] 
+                                      if start_index <= word["word_index"] <= end_index]
+                    transcript_between_indices += " ".join([word["text"] for word in words_in_range])
+                    transcript_between_indices += "\n\n"
+            return transcript_between_indices
+
+        start_context = get_transcript_between_indices(start_context_start_index, start_context_end_index)
+        end_context = get_transcript_between_indices(end_context_start_index, end_context_end_index)
+
+        # Construct the final transcript with context
+        final_transcript = '[START OF TRANSCRIPT] ' if start_context_start_index == 0 else '[START OF CONTEXT]'
+        final_transcript += '\n' + start_context
+        final_transcript += "\n\n<CLIP START>\n\n"
+        final_transcript += clip_transcript
+        final_transcript += "\n\n<CLIP END>\n\n" 
+        final_transcript += end_context
+        final_transcript += '[END OF TRANSCRIPT]' if end_context_end_index == total_words - 1 else '[END OF CONTEXT]'
+
+        # Ask the LLM to critique the clip
+        critique = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=1000,
+            system="\n".join(
+                [
+                    "You are a helpful assistant who critiques podcast clips that are generate for social media.",
+                    "# TASK",
+                    "The user will send you the transcript of the clip as well as some of the transcript before and after the clip.",
+                    "The user will also send the name and duration of the clip in their message.",
+                    "The clip identified in the transcript using <CLIP START> and <CLIP END>.",
+                    "The ways to edit the content of the clip are changing the start and end phrases that bound the clip.",
+                    "You should first critique the clip, the suggest changes to start and end phrases if needed.",
+                    "# CLIPS",
+                    "Clip should be between 3 and 10 minutes long (at least 500 words).",
+                    "Clips should capture interesting takes and the conversation around them.",
+                    "Clips should not start or stop in the middle of a thought or statement.",
+                    "Clips should feel like they have a logical introduction and conclusion.",
+                    "Listeners should be able to enjoy the clip without any additional context.",
+                    "Starting abruptly with the introduction of a topic is okay.",
+                    "Clips will be posted on YouTube and we want them to go viral.",
+                    "Content from one clip should not overlap with another clip.",
+                    "Never include podcast intros, outros, or ads in a clip.",
+                    "# RESPONSE FORMAT",
+                    "Respond to the following questions:",
+                    '1. As a listener, what do you like about the clip?',
+                    '2. What do you dislike about the clip?',
+                    '3. How is the length of the clip compared to the guidelines for clip length? How much content can be added or removed?',
+                    '4. Can you improve where the clip starts? If so, to what?',
+                    '5. Can you improve where the clip ends? If so, to what?',
+                    "Don't give specific edits, just give general feedback.",
+                    "Don't give exact start and end phrases, the user will make that decision.",
+                    "It's ok if no changes are needed, sometimes the first clip is the best possible clip.",
+                    "Only change the start start or end phrase if you're changing the start or end of the clip.",
+                    "Examples of common edits:"
+                    "- A minor change to the end phrase to give it a more clean stopping point.",
+                    "- A major extension to the clip to add the continuation of a relevant conversation.",
+                    "- Change the start phrase to remove the podcast introduction."
+                    "- A clip is on the longer end and includes two topics, edit it to just include the best topic.",
+                    "- Changing nothing because the clip is already good.",
+                ]
+            ),
+            messages=[
+
+                {"role": "user", "content": "\n".join(
+                    [
+                        f"Name: {clip.name}",
+                        f"Duration: {int((clip.end - clip.start) / 60000)} minutes & {((clip.end - clip.start) / 1000.0) % 60:.2f} seconds",
+                        "Transcript:",
+                        final_transcript,
+                    ]
+                )},
+            ],
+        )
+
+        if not critique:
+            raise ValueError("Empty response from model")
+
+        critique_text = critique.content[0].text
+        print("Critique:", critique_text)
+
+        # Apply the critique to the clip
+        response = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=1000,
+            stop_sequences=["</CLIP>"],
+            system="\n".join(
+                [
+                    "You are a helpful assistant who improves podcast clips based on the user's feedback.",
+                    "# TASK",
+                    "You generated a clip based on the transcript of a podcast episode.",
+                    "The user has feedback on the contents of the clip",
+                    "You should improve the clip based on the users feedback.",
+                    "To improve the clip, you can change the name, start phrase, and end phrase.", 
+                    "You should think about what content you could add or remove from the ends of the clip.",
+                    "# RESPONSE FORMAT",
+                    "Your response should contain <CLIP></CLIPS> inside of which you should put the JSON object of the clip.",
+                    "The clip should be a JSON object with the following keys: name, start, and end.",
+                    "- name: The name of the clip",
+                    "- start: A unique, verbatim word phrase that starts the clip",
+                    "- end: A unique, verbatim phrase that ends the clip",
+                    "Don't change the name of the clip.",
+                    "Start and end phrases must be exact matches from transcript otherwise it will cause an error.",
+                    "Start and end phrases should be as short as possible while remaining unique.",
+                ]
+            ),
+            messages=[
+                {"role": "user", "content": format_transcript(transcript)},
+                {"role": "assistant", "content": "\n".join([
+                    "<CLIP>",
+                    json.dumps({
+                        "name": clip.name,
+                        "start": clip.start_phrase,
+                        "end": clip.end_phrase,
+                    }),
+                    "</CLIP>"
+                ])},
+                {"role": "user", "content": critique_text},
+            ],
+        )
+
+        if not response:
+            raise ValueError("Empty response from model")
+        
+        text = response.content[0].text
+
+        if response.stop_reason == "stop_sequence":
+            text += "</CLIP>"
+
+        if "<CLIP>" not in text or "</CLIP>" not in text:
+            raise ValueError("<CLIP> or </CLIP> not found in response:\n" + text)
+
+        clip_json = text.split("<CLIP>")[1].split("</CLIP>")[0]
+        suggested_clip = json.loads(clip_json)
+        try:
+            start, end = find_clip_timing(transcript, suggested_clip["start"], suggested_clip["end"])
+            refined_clips.append(Clip(
+                suggested_clip["name"], 
+                start, 
+                end, 
+                suggested_clip["start"], 
+                suggested_clip["end"]
+            ))
+        except ValueError as e:
+            print(f"Error finding clip timing: {json.dumps(suggested_clip, indent=2)}")
+            continue
+    
+    return refined_clips
+
+def format_transcript(transcript):
+        formatted_transcript = ""
+        for utterance in transcript:
+            formatted_transcript += f"# Speaker {utterance['speaker']}\n"
+            formatted_transcript += f"{utterance['text']}\n\n"
+        return formatted_transcript
+
+def find_clip_timing(transcript: list, start_phrase: str, end_phrase: str) -> tuple[int, int]:
+    start_time = -1
+    end_time = -1
+    start_phrase = start_phrase.lower()
+    end_phrase = end_phrase.lower()
+
+    # We only care about timing, so we can just loop through all the words
+    words = []
+    for utterance in transcript:
+        words += utterance["words"]
+
+    # Function to find a phrase in the word list
+    def find_phrase(phrase, start_from=0):
+        phrase_words = phrase.split()
+        for i in range(start_from, len(words) - len(phrase_words) + 1):
+            if all(words[i+j]["text"].lower() == phrase_words[j] for j in range(len(phrase_words))):
+                return i
+        return -1
+
+    # Find start phrase
+    start_index = find_phrase(start_phrase)
+    if start_index != -1:
+        start_time = words[start_index]["start"]
+
+        # Find end phrase, starting from after the start phrase
+        end_index = find_phrase(end_phrase, start_index + len(start_phrase.split()))
+        if end_index != -1:
+            end_time = words[end_index + len(end_phrase.split()) - 1]["end"]
+
+    if start_time == -1 or end_time == -1:
+        raise ValueError("Could not find clip timing")
+
+    return start_time, end_time
 
 lex_example = {
     "clips": [

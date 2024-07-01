@@ -75,7 +75,6 @@ def generate_clips_from_feed_item(feed_item_id: int) -> None:
     clips = generate_clips(feed_item.transcript_bucket_key)
 
     # Create clip audio files
-    # TODO: Looks like clip ends aren't lining up with where the LLM instructs it to
     clip_audio_bucket_keys = generate_clips_audio(feed_item.audio_bucket_key, clips)
 
     # Save clips to models

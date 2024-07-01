@@ -55,7 +55,7 @@ def handle_r2_audio_upload(audio_url: str) -> str:
     return audio_bucket_key
 
 
-def download_audio_file(audio_bucket_key: str) -> str:
+def download_audio_file(audio_bucket_key: str, output_dir: str = "/tmp") -> str:
     """
     Download the audio file from R2 and process clips.
 
@@ -66,7 +66,7 @@ def download_audio_file(audio_bucket_key: str) -> str:
     Raises:
         Exception: If there's an error downloading or processing the audio file.
     """
-    audio_file_path = f"/tmp/{audio_bucket_key}"
+    audio_file_path = f"{output_dir}/{audio_bucket_key}"
     os.makedirs(os.path.dirname(audio_file_path), exist_ok=True)
 
     try:
