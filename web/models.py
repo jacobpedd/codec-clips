@@ -32,6 +32,7 @@ class FeedItem(models.Model):
 class Clip(models.Model):
     name = models.CharField(max_length=255)
     body = models.TextField()
+    summary = models.TextField()
     start_time = models.IntegerField()
     end_time = models.IntegerField()
     audio_bucket_key = models.CharField(max_length=255)
