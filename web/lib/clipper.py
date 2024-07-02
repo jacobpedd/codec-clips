@@ -21,12 +21,13 @@ client = anthropic.Anthropic(
 
 
 class Clip:
-    def __init__(self, name: str, start: int, end: int, start_phrase: str, end_phrase: str):
+    def __init__(self, name: str, start: int, end: int, start_phrase: str, end_phrase: str, summary: str=""):
         self.name = name
         self.start = start
         self.start_phrase = start_phrase
         self.end = end
         self.end_phrase = end_phrase
+        self.summary = summary
     
     def overlaps_with(self, start: int, end: int) -> bool:
         # Check if there's any overlap between the clip and the given range
@@ -40,6 +41,7 @@ def generate_clips(transcript_bucket_key: str) -> list[Clip]:
 
     clips = suggest_clips(transcript)
     clips = refine_clips(transcript, clips)
+    clips = add_metadata(transcript, clips)
 
     return clips
 
@@ -183,72 +185,10 @@ def suggest_clips(transcript: str):
 
 def refine_clips(transcript: str, clips: [Clip]) -> list[Clip]:
     refined_clips = []
-
-    # Add global word index to each word in the transcript
-    word_index = 0
-    for utterance in transcript:
-        for word in utterance["words"]:
-            word["word_index"] = word_index
-            word_index += 1
-
-    total_words = word_index  # Total number of words in the transcript
-
     for clip in clips:
-        start_word_index = -1
-        end_word_index = -1
-
-        # Find the start and end word indices of the clip
-        clip_transcript = ""
-        for utterance in transcript:
-            if clip.overlaps_with(utterance["start"], utterance["end"]):
-                clip_transcript += f"# Speaker {utterance['speaker']}\n"
-                
-                words = [
-                    word for word in utterance["words"] 
-                    if clip.overlaps_with(word["start"], word["end"])
-                ]
-
-                if start_word_index == -1:
-                    start_word_index = words[0]["word_index"]
-                end_word_index = words[-1]["word_index"]
-                
-                text = " ".join([word["text"] for word in words])
-                clip_transcript += f"{text}\n\n"
-
-        # Add N words of context to the start and end of the clip
+        # Get the transcript with context for the clip
         context_length = 1000
-        start_context_start_index = max(0, start_word_index - context_length)
-        start_context_end_index = start_word_index - 1
-
-        end_context_start_index = end_word_index + 1
-        end_context_end_index = min(total_words - 1, end_word_index + context_length)
-
-        def get_transcript_between_indices(start_index, end_index):
-            transcript_between_indices = ""
-            for utterance in transcript:
-                utterance_start_index = utterance["words"][0]["word_index"]
-                utterance_end_index = utterance["words"][-1]["word_index"]
-                
-                # Check if there's any overlap between the utterance and the desired range
-                if start_index <= utterance_end_index and end_index >= utterance_start_index:
-                    transcript_between_indices += f"# Speaker {utterance['speaker']}\n"
-                    words_in_range = [word for word in utterance["words"] 
-                                      if start_index <= word["word_index"] <= end_index]
-                    transcript_between_indices += " ".join([word["text"] for word in words_in_range])
-                    transcript_between_indices += "\n\n"
-            return transcript_between_indices
-
-        start_context = get_transcript_between_indices(start_context_start_index, start_context_end_index)
-        end_context = get_transcript_between_indices(end_context_start_index, end_context_end_index)
-
-        # Construct the final transcript with context
-        final_transcript = '[START OF TRANSCRIPT] ' if start_context_start_index == 0 else '[START OF CONTEXT]'
-        final_transcript += '\n' + start_context
-        final_transcript += "\n\n<CLIP START>\n\n"
-        final_transcript += clip_transcript
-        final_transcript += "\n\n<CLIP END>\n\n" 
-        final_transcript += end_context
-        final_transcript += '[END OF TRANSCRIPT]' if end_context_end_index == total_words - 1 else '[END OF CONTEXT]'
+        final_transcript = get_transcript_with_context(transcript, clip.start, clip.end, context_length)
 
         # Ask the LLM to critique the clip
         critique = client.messages.create(
@@ -373,6 +313,73 @@ def refine_clips(transcript: str, clips: [Clip]) -> list[Clip]:
     
     return refined_clips
 
+def add_metadata(transcript, clips: list[Clip]) -> list[Clip]:
+    clips_with_metadata = []
+    for clip in clips:
+        # Regenerate the name and summary for the clip
+        clip_transcript = get_transcript_with_context(transcript, clip.start, clip.end, 0)
+
+        # Ask the LLM to add metadata to the clip
+        metadata = client.messages.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=1000,
+            system="\n".join(
+                [
+                    "You are a helpful assistant who adds metadata to a clip.",
+                    "# TASK",
+                    "You are helping the user, the podcast host, by adding metadata to a clip from their podcast.",
+                    "The user will provide the transcript of the clip in their message.", 
+                    "You will add metadata to the clip, with the following properties:",
+                    "- name: The name of the clip",
+                    "- summary: A short summary of the clip",
+                    '# NAME',
+                    'The name of the clip is based on the content of the transcript.',
+                    'It should be a concise and descriptive name that accurately reflects the content of the clip.',
+                    'The name should be no longer than 20 words.',
+                    '# SUMMARY',
+                    'Single paragraph (<500 words)',
+                    "Enumerate all major topics discussed.",
+                    "Colorfully describe the tone. Is it funny, informational, spicy?",
+                    "Do not include any context like 'in the clip' or 'the hosts talk about'.",
+                    "Keep as information dense as possible.",
+                    "Don't include any non-summary text",
+                    "# RESPONSE FORMAT",
+                    "Your response should contain <METADATA></METADATA> tags, inside of which you should put a JSON object with the following keys: name, summary.",
+                    "The JSON object will be parsed by python so make sure it's valid JSON.",
+                    "Your response should start with <METADATA>",
+                    "Do not include any other text in your response.",
+                ]
+            ),
+            messages=[
+                {"role": "user", "content": clip_transcript}, 
+            ],
+        )
+
+        if not metadata:
+            raise ValueError("Empty response from model")
+        
+        text = metadata.content[0].text
+
+        if metadata.stop_reason == "stop_sequence":
+            text += "</METADATA>"
+
+        metadata_json = parse_json_from_tag(text, "<METADATA>", "</METADATA>")
+        if not "name" in metadata_json:
+            raise ValueError("Metadata JSON missing 'name' field")
+        if not "summary" in metadata_json:
+            raise ValueError("Metadata JSON missing 'summary' field")
+        
+        clips_with_metadata.append(Clip(
+            name=metadata_json["name"],
+            summary=metadata_json["summary"],
+            start=clip.start,
+            end=clip.end,
+            start_phrase=clip.start_phrase,
+            end_phrase=clip.end_phrase,
+        ))
+    return clips_with_metadata
+
+
 def format_transcript(transcript):
     formatted_transcript = ""
     for utterance in transcript:
@@ -413,7 +420,6 @@ def find_clip_timing(transcript: list, start_phrase: str, end_phrase: str) -> tu
             print(f"Original phrase: {phrase}")
             print(f"Best match:      {' '.join(word['text'] for word in words[best_match[0]:best_match[0]+len(phrase_words)]).lower()}")
             raise ValueError("Error finding phrase")
-        return -1
 
     # Find start phrase
     start_index = find_phrase(start_phrase)
@@ -429,6 +435,74 @@ def find_clip_timing(transcript: list, start_phrase: str, end_phrase: str) -> tu
         raise ValueError("Could not find clip timing")
 
     return start_time, end_time
+
+def get_transcript_with_context(transcript, start_time, end_time, context_length):
+    # Add global word index to each word in the transcript
+    word_index = 0
+    for utterance in transcript:
+        for word in utterance["words"]:
+            word["word_index"] = word_index
+            word_index += 1
+
+    total_words = word_index  # Total number of words in the transcript
+
+    # Find the start and end word indices of the clip
+    start_word_index = -1
+    end_word_index = -1
+    clip_transcript = ""
+    for utterance in transcript:
+        if start_time <= utterance["end"] and end_time >= utterance["start"]:
+            clip_transcript += f"# Speaker {utterance['speaker']}\n"
+            
+            words = [
+                word for word in utterance["words"] 
+                if start_time <= word["end"] and end_time >= word["start"]
+            ]
+
+            if start_word_index == -1:
+                start_word_index = words[0]["word_index"]
+            end_word_index = words[-1]["word_index"]
+            
+            text = " ".join([word["text"] for word in words])
+            clip_transcript += f"{text}\n\n"
+
+    # Add context to the start and end of the clip
+    start_context_start_index = max(0, start_word_index - context_length)
+    start_context_end_index = start_word_index - 1
+
+    end_context_start_index = end_word_index + 1
+    end_context_end_index = min(total_words - 1, end_word_index + context_length)
+
+    def get_transcript_between_indices(start_index, end_index):
+        transcript_between_indices = ""
+        for utterance in transcript:
+            utterance_start_index = utterance["words"][0]["word_index"]
+            utterance_end_index = utterance["words"][-1]["word_index"]
+            
+            if start_index <= utterance_end_index and end_index >= utterance_start_index:
+                transcript_between_indices += f"# Speaker {utterance['speaker']}\n"
+                words_in_range = [word for word in utterance["words"] 
+                                  if start_index <= word["word_index"] <= end_index]
+                transcript_between_indices += " ".join([word["text"] for word in words_in_range])
+                transcript_between_indices += "\n\n"
+        return transcript_between_indices
+
+    start_context = get_transcript_between_indices(start_context_start_index, start_context_end_index)
+    end_context = get_transcript_between_indices(end_context_start_index, end_context_end_index)
+
+    # Construct the final transcript with context
+    final_transcript = ''
+    if context_length > 0:
+        final_transcript += '[START OF TRANSCRIPT] ' if start_context_start_index == 0 else '[START OF CONTEXT]'
+        final_transcript += '\n' + start_context
+        final_transcript += "\n\n<CLIP START>\n\n"
+    final_transcript += clip_transcript
+    if context_length > 0:
+        final_transcript += "\n\n<CLIP END>\n\n" 
+        final_transcript += end_context
+        final_transcript += '[END OF TRANSCRIPT]' if end_context_end_index == total_words - 1 else '[END OF CONTEXT]'
+
+    return final_transcript
 
 def parse_json_from_tag(text: str, start_tag: str, end_tag: str) -> dict:
     start_index = text.index(start_tag)
