@@ -3,6 +3,7 @@ from datetime import datetime
 from dateutil import parser as date_parser
 from celery import shared_task
 from celery.utils.log import get_task_logger
+from web.lib.ranker import rank_clips_for_user
 from web.lib.transcribe import transcribe
 from web.models import Clip, Feed, FeedItem
 from web.lib.parsing import get_duration
@@ -112,3 +113,8 @@ def add_missing_clips() -> None:
     feed_items = FeedItem.objects.filter(clips__isnull=True)
     for feed_item in feed_items:
         generate_clips_from_feed_item.delay(feed_item.id)
+
+
+@shared_task
+def rank_clips_for_user_task(user_id: int) -> None:
+    rank_clips_for_user(user_id)
