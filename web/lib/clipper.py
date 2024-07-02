@@ -15,6 +15,7 @@ client = anthropic.Anthropic(
         "Helicone-Auth": f"Bearer {settings.HELICONE_API_KEY}",
         "Helicone-Cache-Enabled": "true",
         "Helicone-User-Id": "clipper",
+        "Helicone-Retry-Enabled": "true",
     },
 )
 
@@ -125,6 +126,8 @@ def suggest_clips(transcript: str):
                 "- name: The name of the clip",
                 "- start: A unique short string that marks the start of the clip",
                 "- end: A unique short string that marks the end of the clip",
+                'Start and end phrases should be as short as possible while remaining unique.',
+                'Cut off phrases before they encounter an advertisement or outro.',
                 "A python script will look for start and end phrases in the transcript.",
             ]
         ),
@@ -146,7 +149,7 @@ def suggest_clips(transcript: str):
                     "</CLIPS>",
                 ]),
             },
-            {"role": "user", "content": f"<TRANSCRIPT>\n{format_transcript(transcript)}\n</TRANSCRIPT>"},
+            {"role": "user", "content": f"Here is the transcript for another one of my shows. Can you suggest 5 clips for YouTube from this transcript?\n<TRANSCRIPT>\n{format_transcript(transcript)}\n</TRANSCRIPT>"},
         ],
     )
 
@@ -174,7 +177,6 @@ def suggest_clips(transcript: str):
         except ValueError as e:
             print("Error finding timing for clip:", json.dumps(clip, indent=2))
             print(e)
-            print("")
             continue
 
     return clips
@@ -407,10 +409,10 @@ def find_clip_timing(transcript: list, start_phrase: str, end_phrase: str) -> tu
         if best_match[1] > 85:  # NOTE: Threshold for matching, set based on vibes
             return best_match[0]
         else:
-            print(f"Only found {best_match[1]} out of {90}")
+            print(f"Error finding phrase, best score was {best_match[1]} out of {90}")
             print(f"Original phrase: {phrase}")
             print(f"Best match:      {' '.join(word['text'] for word in words[best_match[0]:best_match[0]+len(phrase_words)]).lower()}")
-            print("\n---------------------\n")
+            raise ValueError("Error finding phrase")
         return -1
 
     # Find start phrase
