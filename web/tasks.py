@@ -65,7 +65,7 @@ def rss_feed_scrape_task(feed_id: int) -> None:
     transcript_bucket_key = transcribe(audio_bucket_key)
 
     # Create a new FeedItem
-    FeedItem.objects.create(
+    feed_item = FeedItem.objects.create(
         name=entry.get("title", "Untitled"),
         body=entry.get("summary", ""),
         audio_url=audio_url,
@@ -79,6 +79,7 @@ def rss_feed_scrape_task(feed_id: int) -> None:
     )
 
     logging.info("[Finished] Scraped new episode: %s", entry.get("title", "Untitled"))
+    return feed_item.id
 
 
 # NOTE: This function is triggered from signals.py when a new feed item is created
