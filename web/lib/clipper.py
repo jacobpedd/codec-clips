@@ -1,7 +1,9 @@
 import os
 import json
+import re
 import ffmpeg
 import anthropic
+from thefuzz import fuzz
 from django.conf import settings
 
 from web.lib.r2 import download_audio_file, get_audio_transcript, upload_file_to_r2
@@ -47,7 +49,6 @@ def generate_clips_audio(audio_bucket_key: str, clips: list[Clip]):
     print(f"Downloaded audio file to {audio_file_path}")
 
     clip_bucket_keys = []
-
     try:
         for clip in clips:
             try:
@@ -157,11 +158,7 @@ def suggest_clips(transcript: str):
     if completion.stop_reason == "stop_sequence":
         text += "</CLIPS>"
 
-    if "<CLIPS>" not in text or "</CLIPS>" not in text:
-        raise ValueError("<CLIPS> or </CLIPS> not found in response:\n" + text)
-
-    clips_json = text.split("<CLIPS>")[1].split("</CLIPS>")[0]
-    suggested_clips = json.loads(clips_json)
+    suggested_clips = parse_json_from_tag(text, "<CLIPS>", "</CLIPS>")
 
     clips = []
     for clip in suggested_clips:
@@ -175,7 +172,9 @@ def suggest_clips(transcript: str):
                 clip["end"]
             ))
         except ValueError as e:
-            print(f"Error finding clip timing: {json.dumps(clip, indent=2)}")
+            print("Error finding timing for clip:", json.dumps(clip, indent=2))
+            print(e)
+            print("")
             continue
 
     return clips
@@ -356,11 +355,7 @@ def refine_clips(transcript: str, clips: [Clip]) -> list[Clip]:
         if response.stop_reason == "stop_sequence":
             text += "</CLIP>"
 
-        if "<CLIP>" not in text or "</CLIP>" not in text:
-            raise ValueError("<CLIP> or </CLIP> not found in response:\n" + text)
-
-        clip_json = text.split("<CLIP>")[1].split("</CLIP>")[0]
-        suggested_clip = json.loads(clip_json)
+        suggested_clip = parse_json_from_tag(text, "<CLIP>", "</CLIP>")
         try:
             start, end = find_clip_timing(transcript, suggested_clip["start"], suggested_clip["end"])
             refined_clips.append(Clip(
@@ -377,11 +372,11 @@ def refine_clips(transcript: str, clips: [Clip]) -> list[Clip]:
     return refined_clips
 
 def format_transcript(transcript):
-        formatted_transcript = ""
-        for utterance in transcript:
-            formatted_transcript += f"# Speaker {utterance['speaker']}\n"
-            formatted_transcript += f"{utterance['text']}\n\n"
-        return formatted_transcript
+    formatted_transcript = ""
+    for utterance in transcript:
+        formatted_transcript += f"# Speaker {utterance['speaker']}\n"
+        formatted_transcript += f"{utterance['text']}\n\n"
+    return formatted_transcript
 
 def find_clip_timing(transcript: list, start_phrase: str, end_phrase: str) -> tuple[int, int]:
     start_time = -1
@@ -394,12 +389,28 @@ def find_clip_timing(transcript: list, start_phrase: str, end_phrase: str) -> tu
     for utterance in transcript:
         words += utterance["words"]
 
-    # Function to find a phrase in the word list
-    def find_phrase(phrase, start_from=0):
+    def find_phrase(phrase, start_from=0, end_at=None):
+        if end_at is None:
+            end_at = len(words)
+        
         phrase_words = phrase.split()
-        for i in range(start_from, len(words) - len(phrase_words) + 1):
-            if all(words[i+j]["text"].lower() == phrase_words[j] for j in range(len(phrase_words))):
-                return i
+        best_match = (-1, 0)  # (index, score)
+        
+        for i in range(start_from, end_at - len(phrase_words) + 1):
+            candidate = ' '.join(word['text'].lower() for word in words[i:i+len(phrase_words)])
+            candidate = re.sub(r'[^\w\s]', '', candidate)
+            score = fuzz.ratio(phrase, candidate)
+            
+            if score > best_match[1]:
+                best_match = (i, score)
+        
+        if best_match[1] > 85:  # NOTE: Threshold for matching, set based on vibes
+            return best_match[0]
+        else:
+            print(f"Only found {best_match[1]} out of {90}")
+            print(f"Original phrase: {phrase}")
+            print(f"Best match:      {' '.join(word['text'] for word in words[best_match[0]:best_match[0]+len(phrase_words)]).lower()}")
+            print("\n---------------------\n")
         return -1
 
     # Find start phrase
@@ -416,6 +427,18 @@ def find_clip_timing(transcript: list, start_phrase: str, end_phrase: str) -> tu
         raise ValueError("Could not find clip timing")
 
     return start_time, end_time
+
+def parse_json_from_tag(text: str, start_tag: str, end_tag: str) -> dict:
+    start_index = text.index(start_tag)
+    end_index = text.index(end_tag)
+
+    if start_index == -1:
+        raise ValueError(f"Start tag {start_tag} not found in text")
+    if end_index == -1:
+        raise ValueError(f"End tag {end_tag} not found in text")
+    
+    json_text = text[start_index + len(start_tag):end_index]
+    return json.loads(json_text)
 
 lex_example = {
     "clips": [

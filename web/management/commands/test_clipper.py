@@ -1,7 +1,6 @@
 import json
 import os
 from django.core.management.base import BaseCommand
-import ffmpeg
 from web.lib.clipper import generate_clips, refine_clips, save_clip_audio, suggest_clips
 from web.lib.r2 import download_audio_file, get_audio_transcript
 from web.models import FeedItem
