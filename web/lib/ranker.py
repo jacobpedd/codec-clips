@@ -28,11 +28,11 @@ def rank_clips_for_user(user_id: str) -> None:
     for clip in ranked_clips[:10]:
         print(f"Clip: {clip.name} | Show: {clip.feed_item.feed.name}")
 
-    # ReRank the top ranked clips
+    # ReRank the top ranked clips with LLM
     # TODO
 
-    # Save the rankings
-    return
+    # Manually insert some low score clips to explore
+    # TODO
 
 
 def get_clip_candidates(user: User):
