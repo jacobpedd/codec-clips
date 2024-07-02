@@ -5,9 +5,12 @@ from django.contrib.auth.models import User
 
 class Feed(models.Model):
     name = models.CharField(max_length=255)
-    url = models.URLField()
+    url = models.URLField(unique=True)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
 
 
 class FeedItem(models.Model):
@@ -22,6 +25,9 @@ class FeedItem(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     feed = models.ForeignKey(Feed, on_delete=models.CASCADE, related_name="items")
 
+    def __str__(self):
+        return self.name
+
 
 class Clip(models.Model):
     name = models.CharField(max_length=255)
@@ -35,12 +41,49 @@ class Clip(models.Model):
         FeedItem, on_delete=models.CASCADE, related_name="clips"
     )
 
+    def __str__(self):
+        return self.name
 
-class ClipScore(models.Model):
-    score = models.IntegerField()
+
+class UserFeedFollow(models.Model):
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="feed_follows"
+    )
+    feed = models.ForeignKey(
+        Feed, on_delete=models.CASCADE, related_name="user_follows"
+    )
     created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-    clip = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="scores")
+
+    class Meta:
+        unique_together = ("user", "feed")
+
+    def __str__(self):
+        return f"{self.user.username} follows {self.feed.name}"
+
+
+class UserTopic(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="topics")
+    is_interested = models.BooleanField()
+    text = models.CharField(max_length=1000)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        unique_together = ("user", "text")
+
+    def __str__(self):
+        return f"{self.user.username} {'interested in' if self.is_interested else 'not interested in'} {self.text}"
+
+
+class ClipTopic(models.Model):
+    clip = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="topics")
+    text = models.CharField(max_length=1000)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        unique_together = ("clip", "text")
+
+    def __str__(self):
+        return f"{self.clip.name} - {self.text}"
 
 
 class ClipUserScore(models.Model):
@@ -52,12 +95,27 @@ class ClipUserScore(models.Model):
         User, on_delete=models.CASCADE, related_name="clip_user_scores"
     )
 
+    class Meta:
+        unique_together = ("clip", "user")
+
+    def __str__(self):
+        return f"{self.user.username} rated {self.clip.name} with score {self.score}"
+
 
 class ClipUserView(models.Model):
     duration = models.IntegerField()
+    processed = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     clip = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="user_views")
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="clip_user_views"
     )
+
+    class Meta:
+        unique_together = ("clip", "user")
+
+    def __str__(self):
+        return (
+            f"{self.user.username} viewed {self.clip.name} for {self.duration} seconds"
+        )
