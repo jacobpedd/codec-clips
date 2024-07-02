@@ -4,8 +4,9 @@ from django.contrib.auth.models import User
 
 
 class Feed(models.Model):
-    name = models.CharField(max_length=255)
     url = models.URLField(unique=True)
+    name = models.CharField(max_length=255)
+    description = models.TextField()
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 

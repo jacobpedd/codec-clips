@@ -23,11 +23,25 @@ def scrape_all_feeds() -> None:
 @shared_task(autoretry_for=(IndexError, KeyError), max_retries=3, retry_backoff=30)
 def rss_feed_scrape_task(feed_id: int) -> None:
     """Scrape and parse the RSS feeds."""
-    feed_obj = Feed.objects.get(id=feed_id)
-    logging.info("[Started] Checking for new episodes from %s ....", feed_obj.name)
+    feed = Feed.objects.get(id=feed_id)
+    logging.info("[Started] Checking for new episodes from %s ....", feed.name)
+
+    # Scrape the RSS feed
+    parsed_feed_dict = feedparser.parse(feed.url)
+
+    # Check if feed name or description changed
+    if (
+        parsed_feed_dict["feed"]["title"] != feed.name
+        or parsed_feed_dict["feed"]["description"] != feed.description
+    ):
+        feed.name = parsed_feed_dict["feed"]["title"]
+        feed.description = parsed_feed_dict["feed"]["description"]
+        feed.save()
+        logging.info(
+            "Feed name or description changed, updated feed name and description."
+        )
 
     # Parse the first entry's audio url
-    parsed_feed_dict = feedparser.parse(feed_obj.url)
     entry = parsed_feed_dict["entries"][0]
     audio_url = entry["enclosures"][0]["href"]
 
@@ -60,7 +74,7 @@ def rss_feed_scrape_task(feed_id: int) -> None:
             get_duration(entry["itunes_duration"]) if "itunes_duration" in entry else 0
         ),
         posted_at=published_date,
-        feed=feed_obj,
+        feed=feed,
     )
 
     logging.info("[Finished] Scraped new episode: %s", entry.get("title", "Untitled"))
@@ -82,6 +96,7 @@ def generate_clips_from_feed_item(feed_item_id: int) -> None:
         Clip.objects.create(
             name=clip.name,
             body="",
+            summary=clip.summary,
             start_time=clip.start,
             end_time=clip.end,
             audio_bucket_key=clip_audio_bucket_key,
