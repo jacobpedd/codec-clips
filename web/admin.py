@@ -74,6 +74,7 @@ class FeedItemAdmin(admin.ModelAdmin):
         "get_feed_name",
         "get_duration",
         "get_audio_url",
+        "get_transcript_url",
         "get_clips_count",
         "posted_at",
         "created_at",
@@ -124,10 +125,11 @@ class FeedItemAdmin(admin.ModelAdmin):
 
     def get_audio_url(self, obj):
         url = f"{settings.R2_BUCKET_URL}/{obj.audio_bucket_key}"
-        truncated_url = url[:50] + "..." if len(url) > 50 else url
-        return format_html(
-            '<a href="{}" target="_blank">Bucket</a>', url, truncated_url
-        )
+        return format_html('<a href="{}" target="_blank">Bucket</a>', url)
+
+    def get_transcript_url(self, obj):
+        url = f"{settings.R2_BUCKET_URL}/{obj.transcript_bucket_key}"
+        return format_html('<a href="{}" target="_blank">Bucket</a>', url)
 
     def get_clips_count(self, obj):
         count = obj._clips_count
@@ -139,7 +141,8 @@ class FeedItemAdmin(admin.ModelAdmin):
 
     get_duration.short_description = "Duration"
 
-    get_audio_url.short_description = "Audio URL"
+    get_audio_url.short_description = "Audio"
+    get_transcript_url.short_description = "Transcript"
     get_clips_count.admin_order_field = "_clips_count"
     get_clips_count.short_description = "Clips"
 
@@ -164,15 +167,14 @@ class ClipAdmin(admin.ModelAdmin):
 
     def get_audio_url(self, obj):
         url = f"{settings.R2_BUCKET_URL}/{obj.audio_bucket_key}"
-        truncated_url = url[:50] + "..." if len(url) > 50 else url
-        return format_html('<a href="{}" target="_blank">{}</a>', url, truncated_url)
+        return format_html('<a href="{}" target="_blank">Bucket</a>', url)
 
     get_feed_item_name.admin_order_field = "feed_item__name"
     get_feed_item_name.short_description = "Feed Item Name"
 
     get_duration.short_description = "Duration"
 
-    get_audio_url.short_description = "Audio URL"
+    get_audio_url.short_description = "Audio"
 
 
 @admin.register(ClipUserScore)
