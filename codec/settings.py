@@ -34,7 +34,6 @@ else:
 CSRF_TRUSTED_ORIGINS = ["https://*.fly.dev"]
 
 # Application definition
-
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -43,6 +42,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "whitenoise.runserver_nostatic",
     "django.contrib.staticfiles",
+    "rest_framework",
     "django_celery_results",
     "web.apps.WebConfig",
 ]
@@ -129,6 +129,12 @@ STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# REST Framework
+REST_FRAMEWORK = {
+    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
+    "PAGE_SIZE": 25,
+}
 
 # Celery
 CELERY_BROKER_URL = env.str("REDIS_URL", "redis://localhost:6379/")
