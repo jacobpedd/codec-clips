@@ -10,7 +10,7 @@ class TimestampedSerializer(serializers.ModelSerializer):
 class FeedSerializer(TimestampedSerializer):
     class Meta:
         model = Feed
-        fields = ["id", "name", "description", "created_at", "updated_at"]
+        fields = ["id", "name", "description", "url", "created_at", "updated_at"]
 
 
 class FeedItemSerializer(TimestampedSerializer):
