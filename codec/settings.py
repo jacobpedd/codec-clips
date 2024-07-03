@@ -27,8 +27,10 @@ DEBUG = env("DEBUG")
 # Allow localhost for local development
 APP_NAME = os.environ.get("FLY_APP_NAME")
 if APP_NAME:
+    FRONTEND_URL = f"https://{APP_NAME}.fly.dev"
     ALLOWED_HOSTS = [f"{APP_NAME}.fly.dev"]
 else:
+    FRONTEND_URL = "http://localhost:8000"
     ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
 CSRF_TRUSTED_ORIGINS = ["https://*.fly.dev"]
@@ -43,6 +45,7 @@ INSTALLED_APPS = [
     "whitenoise.runserver_nostatic",
     "django.contrib.staticfiles",
     "rest_framework",
+    "rest_framework.authtoken",
     "django_celery_results",
     "web.apps.WebConfig",
 ]
@@ -134,6 +137,13 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
     "PAGE_SIZE": 25,
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+    ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {"anon": "100/day", "user": "10000000/day"},
 }
 
 # Celery
@@ -158,3 +168,4 @@ R2_BUCKET_URL = env("R2_BUCKET_URL")
 ASSEMBLYAI_API_KEY = env("ASSEMBLYAI_API_KEY")
 ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY")
 HELICONE_API_KEY = env("HELICONE_API_KEY")
+RESEND_API_KEY = env("RESEND_API_KEY")

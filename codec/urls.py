@@ -17,4 +17,19 @@ urlpatterns = [
     path("api-auth/", include("rest_framework.urls", namespace="rest_framework")),
     # django admin interface
     path("admin/", admin.site.urls),
+    # get a auth token for mobile
+    path("auth/", views.CustomAuthToken.as_view(), name="auth_token"),
+    # register a new user
+    path("register/", views.RegisterView.as_view(), name="register"),
+    # views for password reset
+    path(
+        "password_reset/",
+        views.PasswordResetRequestView.as_view(),
+        name="password_reset",
+    ),
+    path(
+        "reset-password/<str:uidb64>/<str:token>/",
+        views.PasswordResetFormView.as_view(),
+        name="password_reset_confirm",
+    ),
 ]
