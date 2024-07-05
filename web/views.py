@@ -112,7 +112,7 @@ class UserTopicViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return UserTopic.objects.filter(user=self.request.user)
+        return UserTopic.objects.filter(user=self.request.user).order_by("created_at")
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
@@ -123,7 +123,9 @@ class UserFeedFollowViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return UserFeedFollow.objects.filter(user=self.request.user)
+        return UserFeedFollow.objects.filter(user=self.request.user).order_by(
+            "created_at"
+        )
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
