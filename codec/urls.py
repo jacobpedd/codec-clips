@@ -4,6 +4,7 @@ from rest_framework import routers
 from web import views
 
 router = routers.DefaultRouter()
+router.register(r"queue", views.QueueViewSet, basename="queue")
 router.register(r"feed", views.FeedViewSet, basename="feed")
 router.register(r"view", views.ViewViewSet, basename="view")
 router.register(r"history", views.HistoryViewSet, basename="history")

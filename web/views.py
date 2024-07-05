@@ -1,17 +1,20 @@
 import re
-from rest_framework import viewsets, permissions, status
+from rest_framework import viewsets, filters, status, generics
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
 from rest_framework.throttling import AnonRateThrottle
 from django.db.models import Exists, OuterRef, Subquery
+from django.contrib.postgres.search import TrigramSimilarity
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
 from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.auth.tokens import default_token_generator
-from django.db import IntegrityError
+from django.db import IntegrityError, connection
+from django.db.models import Q
 from django.shortcuts import render
 from django.views import View
 from django.http import JsonResponse
@@ -28,13 +31,14 @@ from web.models import (
     ClipUserScore,
     UserFeedFollow,
     UserTopic,
+    Feed,
 )
 import resend
 
 
-class FeedViewSet(viewsets.ReadOnlyModelViewSet):
+class QueueViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = serializers.ClipSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
@@ -54,9 +58,35 @@ class FeedViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 
+class FeedViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = Feed.objects.all()
+    serializer_class = serializers.FeedSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Feed.objects.all()
+        search_query = self.request.query_params.get("search", None)
+
+        if search_query:
+            if connection.vendor == "postgresql":
+                # Use fuzzy search for PostgreSQL (production mode)
+                queryset = queryset.annotate(
+                    similarity=TrigramSimilarity("name", search_query),
+                )
+                queryset = queryset.filter(
+                    Q(similarity__gt=0.1)  # Similarity threshold or
+                    | Q(name__icontains=search_query)  # Basic search
+                ).order_by("-similarity")
+            else:
+                # Use basic search for SQLite (debug mode)
+                queryset = queryset.filter(name__icontains=search_query)
+
+        return queryset
+
+
 class HistoryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = serializers.HistorySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         return (
@@ -68,7 +98,7 @@ class HistoryViewSet(viewsets.ReadOnlyModelViewSet):
 
 class ViewViewSet(viewsets.ModelViewSet):
     serializer_class = serializers.ClipUserViewSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         return ClipUserView.objects.filter(user=self.request.user)
@@ -79,7 +109,7 @@ class ViewViewSet(viewsets.ModelViewSet):
 
 class UserTopicViewSet(viewsets.ModelViewSet):
     serializer_class = serializers.UserTopicSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         return UserTopic.objects.filter(user=self.request.user)
@@ -90,7 +120,7 @@ class UserTopicViewSet(viewsets.ModelViewSet):
 
 class UserFeedFollowViewSet(viewsets.ModelViewSet):
     serializer_class = serializers.UserFeedFollowSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         return UserFeedFollow.objects.filter(user=self.request.user)
