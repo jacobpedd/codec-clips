@@ -103,8 +103,23 @@ class ViewViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return ClipUserView.objects.filter(user=self.request.user)
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+    def create(self, request, *args, **kwargs):
+        clip_id = request.data.get("clip")
+        duration = request.data.get("duration", 0)
+
+        clip_user_view, created = ClipUserView.objects.get_or_create(
+            user=request.user, clip_id=clip_id, defaults={"duration": duration}
+        )
+
+        if not created:
+            clip_user_view.duration = duration
+            clip_user_view.save()
+
+        serializer = self.get_serializer(clip_user_view)
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK if not created else status.HTTP_201_CREATED,
+        )
 
 
 class UserTopicViewSet(viewsets.ModelViewSet):
