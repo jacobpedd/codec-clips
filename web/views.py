@@ -111,7 +111,7 @@ class ViewViewSet(viewsets.ModelViewSet):
             user=request.user, clip_id=clip_id, defaults={"duration": duration}
         )
 
-        if not created:
+        if not created and duration > clip_user_view.duration:
             clip_user_view.duration = duration
             clip_user_view.save()
 
