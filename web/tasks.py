@@ -14,20 +14,20 @@ logging = get_task_logger(__name__)
 
 
 @shared_task
-def scrape_all_feeds() -> None:
+def crawl_all_feeds() -> None:
     # Scheduled with beat to run every hour
     feeds = Feed.objects.all()
     for feed in feeds:
-        rss_feed_scrape_task.delay(feed.id)
+        crawl_feed.delay(feed.id)
 
 
 @shared_task(autoretry_for=(IndexError, KeyError), max_retries=3, retry_backoff=30)
-def rss_feed_scrape_task(feed_id: int) -> None:
-    """Scrape and parse the RSS feeds."""
+def crawl_feed(feed_id: int) -> None:
+    """crawl and parse the RSS feeds."""
     feed = Feed.objects.get(id=feed_id)
     logging.info("[Started] Checking for new episodes from %s ....", feed.name)
 
-    # Scrape the RSS feed
+    # crawl the RSS feed
     parsed_feed_dict = feedparser.parse(feed.url)
 
     # Check if feed name or description changed
@@ -78,7 +78,7 @@ def rss_feed_scrape_task(feed_id: int) -> None:
         feed=feed,
     )
 
-    logging.info("[Finished] Scraped new episode: %s", entry.get("title", "Untitled"))
+    logging.info("[Finished] crawld new episode: %s", entry.get("title", "Untitled"))
     return feed_item.id
 
 

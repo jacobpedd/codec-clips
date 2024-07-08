@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand, CommandError
-from web.tasks import rss_feed_scrape_task
+from web.tasks import crawl_feed
 from web.models import Feed
 
 
@@ -22,7 +22,7 @@ class Command(BaseCommand):
         )
 
         try:
-            rss_feed_scrape_task(feed_id)
+            crawl_feed(feed_id)
             self.stdout.write(
                 self.style.SUCCESS(f"Successfully crawled feed with ID {feed_id}")
             )

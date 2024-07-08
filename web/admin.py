@@ -8,7 +8,7 @@ from django.db import transaction
 
 from django.contrib.auth.models import User
 
-from web.tasks import rss_feed_scrape_task, generate_clips_from_feed_item
+from web.tasks import crawl_feed, generate_clips_from_feed_item
 from .models import (
     Feed,
     FeedItem,
@@ -31,7 +31,7 @@ class FeedAdmin(admin.ModelAdmin):
         "updated_at",
     )
     search_fields = ("name", "url")
-    actions = ["scrape_selected_feeds"]
+    actions = ["crawl_selected_feeds"]
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)
@@ -57,14 +57,14 @@ class FeedAdmin(admin.ModelAdmin):
     get_feed_items_count.short_description = "Items"
     get_feed_items_count.admin_order_field = "_feed_items_count"
 
-    def scrape_selected_feeds(self, request, queryset):
+    def crawl_selected_feeds(self, request, queryset):
         for feed in queryset:
-            rss_feed_scrape_task.delay(feed.id)
+            crawl_feed.delay(feed.id)
         self.message_user(
-            request, f"Scrape task initiated for {queryset.count()} feeds."
+            request, f"crawl task initiated for {queryset.count()} feeds."
         )
 
-    scrape_selected_feeds.short_description = "Scrape selected feeds"
+    crawl_selected_feeds.short_description = "crawl selected feeds"
 
 
 @admin.register(FeedItem)

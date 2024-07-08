@@ -152,8 +152,8 @@ REST_FRAMEWORK = {
 CELERY_BROKER_URL = env.str("REDIS_URL", "redis://localhost:6379/")
 CELERY_RESULT_BACKEND = env.str("CELERY_RESULT_BACKEND", "django-db")
 CELERY_BEAT_SCHEDULE = {
-    "scrape-feeds-hourly": {
-        "task": "web.tasks.scrape_all_feeds",
+    "crawl-feeds-hourly": {
+        "task": "web.tasks.crawl_all_feeds",
         "schedule": crontab(minute=0, hour="*/1"),
     },
 }
