@@ -3,12 +3,11 @@ from datetime import datetime
 from dateutil import parser as date_parser
 from celery import shared_task
 from celery.utils.log import get_task_logger
-from web.lib.ranker import rank_clips_for_user
-from web.lib.transcribe import transcribe
-from web.models import Clip, Feed, FeedItem
-from web.lib.parsing import get_duration
-from web.lib.clipper import generate_clips, generate_clips_audio
+from web.models import Feed, FeedItem
 from web.lib.r2 import handle_r2_audio_upload
+from web.lib.transcribe import transcribe
+from web.lib.parsing import get_duration
+
 
 logging = get_task_logger(__name__)
 
@@ -80,42 +79,3 @@ def crawl_feed(feed_id: int) -> None:
 
     logging.info("[Finished] crawld new episode: %s", entry.get("title", "Untitled"))
     return feed_item.id
-
-
-# NOTE: This function is triggered from signals.py when a new feed item is created
-@shared_task
-def generate_clips_from_feed_item(feed_item_id: int) -> None:
-    feed_item = FeedItem.objects.get(id=feed_item_id)
-
-    # Generate clips with LLM
-    clips = generate_clips(feed_item.transcript_bucket_key)
-
-    # Create clip audio files
-    clip_audio_bucket_keys = generate_clips_audio(feed_item.audio_bucket_key, clips)
-
-    # Save clips to models
-    for clip, clip_audio_bucket_key in zip(clips, clip_audio_bucket_keys):
-        Clip.objects.create(
-            name=clip.name,
-            body="",
-            summary=clip.summary,
-            start_time=clip.start,
-            end_time=clip.end,
-            audio_bucket_key=clip_audio_bucket_key,
-            feed_item=feed_item,
-        )
-
-    logging.info("[Finished] Generating clips for feed item: %s", feed_item.name)
-
-
-@shared_task
-def add_missing_clips() -> None:
-    # Add clips to all feed items that don't have any clips
-    feed_items = FeedItem.objects.filter(clips__isnull=True)
-    for feed_item in feed_items:
-        generate_clips_from_feed_item.delay(feed_item.id)
-
-
-@shared_task
-def rank_clips_for_user_task(user_id: int) -> None:
-    rank_clips_for_user(user_id)
