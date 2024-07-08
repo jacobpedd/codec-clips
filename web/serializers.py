@@ -18,7 +18,7 @@ class FeedItemSerializer(TimestampedSerializer):
 
     class Meta:
         model = FeedItem
-        fields = ["id", "name", "feed", "created_at", "updated_at"]
+        fields = ["id", "name", "feed", "posted_at", "created_at", "updated_at"]
 
 
 class ClipSerializer(TimestampedSerializer):

@@ -112,6 +112,7 @@ class ViewViewSet(viewsets.ModelViewSet):
         )
 
         if not created and duration > clip_user_view.duration:
+            print(f"[VIEW] {request.user.username} viewed {clip_id} up to {duration}%")
             clip_user_view.duration = duration
             clip_user_view.save()
 
