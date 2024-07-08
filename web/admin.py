@@ -25,6 +25,7 @@ from .models import (
 class FeedAdmin(admin.ModelAdmin):
     list_display = (
         "name",
+        "format_total_itunes_ratings",
         "get_url",
         "get_feed_items_count",
         "created_at",
@@ -46,16 +47,25 @@ class FeedAdmin(admin.ModelAdmin):
             '<a href="{}" target="_blank">RSS</a>', obj.url, truncated_url
         )
 
+    get_url.short_description = "URL"
+    get_url.admin_order_field = "url"
+
     def get_feed_items_count(self, obj):
         count = obj._feed_items_count
         url = reverse("admin:web_feeditem_changelist") + f"?feed__id__exact={obj.id}"
         return format_html('<a href="{}">{}</a>', url, count)
 
-    get_url.short_description = "URL"
-    get_url.admin_order_field = "url"
-
     get_feed_items_count.short_description = "Items"
     get_feed_items_count.admin_order_field = "_feed_items_count"
+
+    def format_total_itunes_ratings(self, obj):
+        if obj.total_itunes_ratings is None:
+            return "N/A"
+        formatted_ratings = "{:,}".format(obj.total_itunes_ratings)
+        return f"{formatted_ratings}"
+
+    format_total_itunes_ratings.short_description = "Ratings"
+    format_total_itunes_ratings.admin_order_field = "total_itunes_ratings"
 
     def crawl_selected_feeds(self, request, queryset):
         for feed in queryset:

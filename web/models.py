@@ -7,6 +7,7 @@ class Feed(models.Model):
     url = models.URLField(unique=True)
     name = models.CharField(max_length=255)
     description = models.TextField()
+    total_itunes_ratings = models.IntegerField(default=0)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
