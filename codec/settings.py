@@ -152,9 +152,14 @@ REST_FRAMEWORK = {
 CELERY_BROKER_URL = env.str("REDIS_URL", "redis://localhost:6379/")
 CELERY_RESULT_BACKEND = env.str("CELERY_RESULT_BACKEND", "django-db")
 CELERY_BEAT_SCHEDULE = {
-    "crawl-feeds-hourly": {
-        "task": "web.tasks.crawl_all_feeds",
-        "schedule": crontab(minute=0, hour="*/1"),
+    "crawl-feeds-every-3-hours": {
+        "task": "web.tasks.crawl_top_feeds",
+        "schedule": crontab(minute=0, hour="*/3"),
+    },
+    "crawl-itunes-weekly": {
+        "task": "web.tasks.crawl_itunes",
+        # Run every Tuesday at 3am Pacific Time
+        "schedule": crontab(minute=0, hour=10, day_of_week="tuesday"),
     },
 }
 CELERY_RESULT_EXTENDED = True
@@ -171,3 +176,4 @@ ASSEMBLYAI_API_KEY = env("ASSEMBLYAI_API_KEY")
 ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY")
 HELICONE_API_KEY = env("HELICONE_API_KEY")
 RESEND_API_KEY = env("RESEND_API_KEY")
+SCRAPING_FISH_API_KEY = env("SCRAPING_FISH_API_KEY")

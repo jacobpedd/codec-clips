@@ -18,7 +18,7 @@ class Feed(models.Model):
 class FeedItem(models.Model):
     name = models.CharField(max_length=255)
     body = models.TextField()
-    audio_url = models.URLField(max_length=2000)
+    audio_url = models.URLField(max_length=2000, unique=True)
     audio_bucket_key = models.CharField(max_length=255)
     transcript_bucket_key = models.CharField(max_length=255)
     duration = models.IntegerField()

@@ -134,7 +134,7 @@ def crawl_top_feeds() -> None:
 
 
 @shared_task(
-    autoretry_for=(IndexError, KeyError),
+    autoretry_for=(IndexError, KeyError, AttributeError),
     max_retries=3,
     retry_backoff=30,
 )
@@ -171,7 +171,8 @@ def crawl_feed(feed_id: int) -> None:
         return
 
     # Trigger the crawl_feed_item task for the new feed item
-    crawl_feed_item.delay(feed.id, entry_data)
+    task_id = f"crawl_feed_item-{entry_data['audio_url']}"
+    crawl_feed_item.apply_async(args=[feed.id, entry_data], task_id=task_id)
 
 
 @shared_task(
@@ -184,6 +185,12 @@ def crawl_feed_item(feed_id: int, entry_data: dict) -> FeedItem:
     # Parse the entry's audio url and published date
     audio_url = entry_data["audio_url"]
     published_datetime = datetime.datetime(*entry_data["published_parsed"][:6])
+
+    # Check if the audio file already exists in the database
+    feed_item = FeedItem.objects.filter(audio_url=audio_url).first()
+    if feed_item:
+        logging.info(f"Feed item already exists: {feed_item.name}")
+        return feed_item.id
 
     # Save audio file to R2
     logging.info(f"Saving audio file to R2: {audio_url}")
