@@ -1,12 +1,10 @@
 from django.conf import settings
 from django.contrib import admin, messages
+from django.contrib.admin import SimpleListFilter
 from django.utils.html import format_html
 from django.urls import reverse
 from django.db.models import Count
-from django import forms
 from django.db import transaction
-
-from django.contrib.auth.models import User
 
 from web.tasks import crawl_feed, generate_clips_from_feed_item
 from .models import (
@@ -77,6 +75,23 @@ class FeedAdmin(admin.ModelAdmin):
     crawl_selected_feeds.short_description = "crawl selected feeds"
 
 
+class HasClipsFilter(SimpleListFilter):
+    title = "has clips"
+    parameter_name = "has_clips"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "Yes"),
+            ("no", "No"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.annotate(clip_count=Count("clips")).filter(clip_count__gt=0)
+        if self.value() == "no":
+            return queryset.annotate(clip_count=Count("clips")).filter(clip_count=0)
+
+
 @admin.register(FeedItem)
 class FeedItemAdmin(admin.ModelAdmin):
     list_display = (
@@ -89,7 +104,7 @@ class FeedItemAdmin(admin.ModelAdmin):
         "posted_at",
         "created_at",
     )
-    list_filter = ("feed", "posted_at")
+    list_filter = ("posted_at", HasClipsFilter)
     search_fields = ("name", "body", "feed__name")
 
     actions = ["delete_and_regenerate_clips"]
@@ -145,6 +160,12 @@ class FeedItemAdmin(admin.ModelAdmin):
         count = obj._clips_count
         url = reverse("admin:web_clip_changelist") + f"?feed_item__id__exact={obj.id}"
         return format_html('<a href="{}">{}</a>', url, count)
+
+    def has_clips(self, obj):
+        return obj._clips_count > 0
+
+    has_clips.boolean = True
+    has_clips.short_description = "Has Clips"
 
     get_feed_name.admin_order_field = "feed"
     get_feed_name.short_description = "Feed"
