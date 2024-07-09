@@ -41,7 +41,7 @@ def crawl_itunes() -> str:
             logging.warning(f"No podcast links found in {url}")
 
     # Remove duplicate URLs
-    itunes_podcast_links = list(set(itunes_podcast_links))[:10]
+    itunes_podcast_links = list(set(itunes_podcast_links))
 
     # Create a group of tasks for processing each podcast
     tasks = group(
