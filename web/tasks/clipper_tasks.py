@@ -8,13 +8,13 @@ logging = get_task_logger(__name__)
 
 
 # NOTE: This function is triggered from signals.py when a new feed item is created
-@shared_task
+@shared_task(rate_limit="10/m")
 def generate_clips_from_feed_item(feed_item_id: int) -> None:
     feed_item = FeedItem.objects.get(id=feed_item_id)
 
     # Generate clips with LLM
     transcript = get_audio_transcript(feed_item.transcript_bucket_key)
-    clips = generate_clips(transcript)
+    clips = generate_clips(transcript, max_clips=3)
 
     # Create clip audio files
     clip_audio_bucket_keys = generate_clips_audio(feed_item.audio_bucket_key, clips)
