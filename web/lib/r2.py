@@ -78,7 +78,7 @@ def download_audio_file(audio_bucket_key: str, output_dir: str = "/tmp") -> str:
         print(f"Error downloading audio file: {str(e)}")
         raise
     except Exception as e:
-        print(f"Unexpected error in generate_clips_audio: {str(e)}")
+        print(f"Unexpected error in download_audio_file: {str(e)}")
         raise
 
 
