@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from cohere import ClassifyExample, Client
-from celery import group, shared_task
+from celery import chain, group, shared_task
+from django.utils import timezone
 from django.db.models import Exists, OuterRef, Prefetch
 from web.models import Clip, ClipUserScore, ClipUserView
 from codec import settings
@@ -10,6 +11,73 @@ from celery.utils.log import get_task_logger
 logging = get_task_logger(__name__)
 
 co = Client(settings.COHERE_API_KEY)
+
+
+@shared_task
+def re_rank_using_views() -> None:
+    # Get all user_ids
+    user_ids = User.objects.all().values_list("id", flat=True)
+
+    # Create a group of tasks for processing each feed
+    tasks = group(re_rank_using_views_for_user.s(user_id) for user_id in user_ids)
+
+    # Execute the group of tasks without waiting
+    result = tasks.apply_async()
+
+    # Log the group result ID for potential later use
+    group_result_id = result.id
+
+    logging.info(
+        f"Started processing {len(user_ids)} users. Group result ID: {group_result_id}"
+    )
+
+
+@shared_task
+def re_rank_using_views_for_user(user_id: int) -> None:
+    # Check how many unprocessed ClipUserViews for user
+    unprocessed_count = ClipUserView.objects.filter(
+        user_id=user_id, processed=False
+    ).count()
+
+    # If there are less than 10 unprocessed ClipUserViews, wait until there are more
+    if unprocessed_count < 10:
+        logging.info(f"Not enough unprocessed ClipUserViews for user {user_id}")
+        return
+
+    # One batch of high scored clips to use as examples
+    # Get ClipUserScores less than 1 week old ordered by highest score
+    one_week_ago = datetime.now() - timedelta(days=7)
+    top_scores = ClipUserScore.objects.filter(
+        user_id=user_id, created_at__gte=one_week_ago, score__isnull=False
+    ).order_by("-score")[:96]
+    top_clip_ids = [score.clip_id for score in top_scores]
+
+    # One batch of random clips to use as examples
+    # Get random clips less than 1 week old that are scored
+    random_scores = ClipUserScore.objects.filter(user_id=user_id).order_by("?")[:96]
+    random_clip_ids = [score.clip_id for score in random_scores]
+
+    # Chain the ranking tasks with a final task to mark views as processed
+    chain(
+        group(
+            rank_clips_for_user.s(user_id, top_clip_ids),
+            rank_clips_for_user.s(user_id, random_clip_ids),
+        ),
+        complete_re_rank_for_user.s(user_id),
+    ).apply_async()
+
+    logging.info(f"Started re-ranking process for user {user_id}")
+
+
+@shared_task
+def complete_re_rank_for_user(results, user_id: int):
+    # 'results' parameter will contain the results from the previous tasks in the chain
+    # We don't need to use it, but it needs to be there to accept the passed results
+    updated = ClipUserView.objects.filter(user_id=user_id, processed=False).update(
+        processed=True
+    )
+    logging.info(f"Marked {updated} views as processed for user {user_id}")
+    return updated
 
 
 # Runs on cron every hour
@@ -127,6 +195,7 @@ def rank_clips_for_user(user_id: int, clip_ids: [int]) -> None:
 
 
 def get_user_rank_examples(user_id: str) -> [ClassifyExample]:
+    # Get user views to use as examples
     # NOTE: 2500 is the example limit for cohere's classify endpoint
     user_views = (
         ClipUserView.objects.filter(user_id=user_id)
@@ -134,6 +203,15 @@ def get_user_rank_examples(user_id: str) -> [ClassifyExample]:
         .prefetch_related(Prefetch("clip__topics", to_attr="prefetched_topics"))
         .order_by("-created_at")[:2500]
     )
+
+    # Exclude the most recent view if it's less than 10 min old because view could be in progress
+    ten_minutes_ago = timezone.now() - timedelta(minutes=10)
+    most_recent_view = user_views.first()
+    if most_recent_view and most_recent_view.created_at > ten_minutes_ago:
+        logging.info(f"Excluding most recent view because it might be in progress")
+        user_views = user_views.exclude(id=most_recent_view.id)
+
+    # Create cohere examples for each user view
     examples = []
     for user_view in user_views:
         label = "Complete" if user_view.duration > 90 else "Skipped"
