@@ -1,12 +1,14 @@
+import random
 import re
-from rest_framework import viewsets, filters, status, generics
+from django.utils import timezone
+from datetime import timedelta
+from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
 from rest_framework.throttling import AnonRateThrottle
-from django.db.models import Exists, OuterRef, Subquery
 from django.contrib.postgres.search import TrigramSimilarity
 from django.contrib.auth.models import User
 from django.contrib.auth import authenticate
@@ -28,7 +30,6 @@ from web import serializers
 from web.models import (
     Clip,
     ClipUserView,
-    ClipUserScore,
     UserFeedFollow,
     UserTopic,
     Feed,
@@ -42,20 +43,34 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        return (
-            Clip.objects.annotate(
-                score=Subquery(
-                    ClipUserScore.objects.filter(clip=OuterRef("pk"), user=user).values(
-                        "score"
-                    )[:1]
-                )
-            )
-            .filter(
-                ~Exists(ClipUserView.objects.filter(user=user, clip=OuterRef("pk")))
-            )
+        one_week_ago = timezone.now() - timedelta(days=7)
+
+        base_queryset = (
+            Clip.objects.filter(created_at__gte=one_week_ago, user_scores__user=user)
+            .exclude(user_views__user=user)
             .select_related("feed_item__feed")
-            .order_by("-score")
+            .prefetch_related("user_scores")
         )
+
+        # Get top clips
+        top_clips = list(
+            base_queryset.order_by("-user_scores__score", "-created_at").distinct()[:9]
+        )
+        if len(top_clips) == 0:
+            raise ValueError("No top clips found")
+
+        # Get a random clip
+        random_clip = (
+            base_queryset.filter(user_scores__score__lt=0.5).order_by("?").first()
+        )
+        if random_clip is None:
+            raise ValueError("No random clip found")
+
+        # Insert the random clip at a random position in the top clips
+        random_index = random.randint(0, len(top_clips) - 1)
+        top_clips.insert(random_index, random_clip)
+
+        return top_clips
 
 
 class FeedViewSet(viewsets.ReadOnlyModelViewSet):
@@ -92,7 +107,7 @@ class HistoryViewSet(viewsets.ReadOnlyModelViewSet):
         return (
             ClipUserView.objects.filter(user=self.request.user)
             .select_related("clip__feed_item__feed")
-            .order_by("-created_at")
+            .order_by("-created_at")[:10]
         )
 
 

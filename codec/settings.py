@@ -158,8 +158,7 @@ CELERY_BEAT_SCHEDULE = {
     },
     "crawl-itunes-weekly": {
         "task": "web.tasks.crawler_tasks.crawl_itunes",
-        # Run every Tuesday at 3am Pacific Time
-        "schedule": crontab(minute=0, hour=10, day_of_week="tuesday"),
+        "schedule": crontab(minute=0, hour=10, day_of_week="tuesday"),  # Tues 3am PST
     },
     "rank-new-clips-hourly": {
         "task": "web.tasks.ranker_tasks.rank_new_clips",
