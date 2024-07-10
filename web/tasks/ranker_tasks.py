@@ -227,11 +227,15 @@ def get_user_rank_examples(user_id: str) -> [ClassifyExample]:
 
 def clip_to_text(clip: Clip):
     # Returns ~500 tokens per clip, will be truncated at end if needed
+    clip_duration = (clip.end_time - clip.start_time) / 1000.0
+    clip_minutes = int(clip_duration // 60)
+    clip_seconds = int(clip_duration % 60)
+
     return "\n".join(
         [
             f"Clip Name: {clip.name}",
             f"Clip Summary: {clip.summary}",
-            f"Episode Name: {clip.feed_item.name}",
+            f"Duration: {clip_minutes}m {clip_seconds}s",
             f"Episode Description: {clip.feed_item.body[:1000]}",
             f"Podcast Name: {clip.feed_item.feed.name}",
             f"Podcast Description: {clip.feed_item.feed.description[:1000]}",
