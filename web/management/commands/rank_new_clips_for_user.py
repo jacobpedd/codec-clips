@@ -1,9 +1,9 @@
 from django.core.management.base import BaseCommand
-from web.lib.ranker import rank_clips_for_user
+from web.tasks import rank_new_clips_for_user
 
 
 class Command(BaseCommand):
-    help = "Rank clips for a specific user"
+    help = "Rank new clips for a specific user"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -12,4 +12,4 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         user_id = options["user_id"]
-        rank_clips_for_user(user_id)
+        rank_new_clips_for_user.delay(user_id)

@@ -161,6 +161,10 @@ CELERY_BEAT_SCHEDULE = {
         # Run every Tuesday at 3am Pacific Time
         "schedule": crontab(minute=0, hour=10, day_of_week="tuesday"),
     },
+    "rank-new-clips-hourly": {
+        "task": "web.tasks.ranker_tasks.rank_new_clips",
+        "schedule": crontab(minute=30, hour="*"),
+    },
 }
 CELERY_RESULT_EXTENDED = True
 

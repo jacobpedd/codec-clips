@@ -90,7 +90,7 @@ class ClipTopic(models.Model):
 
 
 class ClipUserScore(models.Model):
-    score = models.IntegerField()
+    score = models.FloatField()
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     clip = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="user_scores")
