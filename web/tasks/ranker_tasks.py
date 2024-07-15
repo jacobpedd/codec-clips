@@ -195,21 +195,23 @@ def rank_clips_for_user(user_id: int, clip_ids: [int]) -> None:
 
 
 def get_user_rank_examples(user_id: str) -> [ClassifyExample]:
-    # Get user views to use as examples
-    # NOTE: 2500 is the example limit for cohere's classify endpoint
-    user_views = (
+    # Get base queryset
+    base_query = (
         ClipUserView.objects.filter(user_id=user_id)
         .select_related("clip__feed_item__feed")
         .prefetch_related(Prefetch("clip__topics", to_attr="prefetched_topics"))
-        .order_by("-created_at")[:2500]
+        .order_by("-created_at")
     )
 
-    # Exclude the most recent view if it's less than 10 min old because view could be in progress
+    # Exclude the most recent view if it's less than 10 min old
     ten_minutes_ago = timezone.now() - timedelta(minutes=10)
-    most_recent_view = user_views.first()
+    most_recent_view = base_query.first()
     if most_recent_view and most_recent_view.created_at > ten_minutes_ago:
         logging.info(f"Excluding most recent view because it might be in progress")
-        user_views = user_views.exclude(id=most_recent_view.id)
+        base_query = base_query.exclude(id=most_recent_view.id)
+
+    # Limit to 2500 examples (max for cohere's classify endpoint)
+    user_views = base_query[:2500]
 
     # Create cohere examples for each user view
     examples = []
@@ -221,7 +223,6 @@ def get_user_rank_examples(user_id: str) -> [ClassifyExample]:
                 label=label,
             )
         )
-
     return examples
 
 
