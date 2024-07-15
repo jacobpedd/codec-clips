@@ -45,9 +45,17 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
         user = self.request.user
         one_week_ago = timezone.now() - timedelta(days=7)
 
+        # Get exclude_clip_ids from query parameters
+        exclude_clip_ids = self.request.query_params.getlist("exclude_clip_ids", [])
+
+        # If only one exclude_clip_ids param is provided as a comma-separated string, split it
+        if len(exclude_clip_ids) == 1 and "," in exclude_clip_ids[0]:
+            exclude_clip_ids = exclude_clip_ids[0].split(",")
+
         base_queryset = (
             Clip.objects.filter(created_at__gte=one_week_ago, user_scores__user=user)
             .exclude(user_views__user=user)
+            .exclude(id__in=exclude_clip_ids)
             .select_related("feed_item__feed")
             .prefetch_related("user_scores")
         )
@@ -57,17 +65,17 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
             base_queryset.order_by("-user_scores__score", "-created_at").distinct()[:9]
         )
         if len(top_clips) == 0:
-            raise ValueError("No top clips found")
+            return []
 
         # Get a random clip
         random_clip = (
             base_queryset.filter(user_scores__score__lt=0.5).order_by("?").first()
         )
         if random_clip is None:
-            raise ValueError("No random clip found")
+            return top_clips
 
         # Insert the random clip at a random position in the top clips
-        random_index = random.randint(0, len(top_clips) - 1)
+        random_index = random.randint(0, len(top_clips))
         top_clips.insert(random_index, random_clip)
 
         return top_clips
