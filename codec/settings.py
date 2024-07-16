@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import environ
 from celery.schedules import crontab
+import sentry_sdk
 
 env = environ.Env(  # <-- Updated!
     # set casting, default value
@@ -185,3 +186,12 @@ HELICONE_API_KEY = env("HELICONE_API_KEY")
 RESEND_API_KEY = env("RESEND_API_KEY")
 SCRAPING_FISH_API_KEY = env("SCRAPING_FISH_API_KEY")
 COHERE_API_KEY = env("COHERE_API_KEY")
+SENTRY_DSN = env("SENTRY_DSN")
+
+# Sentry
+sentry_sdk.init(
+    dsn=SENTRY_DSN,
+    traces_sample_rate=1.0,
+    profiles_sample_rate=1.0,
+    environment="production" if not DEBUG else "development",
+)
