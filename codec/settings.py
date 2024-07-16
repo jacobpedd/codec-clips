@@ -22,15 +22,14 @@ environ.Env.read_env(BASE_DIR / ".env")
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env("SECRET_KEY")
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = env("DEBUG")
-
 # Allow localhost for local development
-APP_NAME = os.environ.get("FLY_APP_NAME")
+APP_NAME = os.environ.get("FLY_APP_NAME")  # Set in production on fly.io
 if APP_NAME:
+    DEBUG = False
     FRONTEND_URL = f"https://{APP_NAME}.fly.dev"
     ALLOWED_HOSTS = [f"{APP_NAME}.fly.dev"]
 else:
+    DEBUG = True
     FRONTEND_URL = "http://localhost:8000"
     ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
@@ -196,6 +195,7 @@ sentry_sdk.init(
     traces_sample_rate=1.0,
     profiles_sample_rate=1.0,
     environment="production" if not DEBUG else "development",
+    send_default_pii=True,
 )
 
 # Apitally
