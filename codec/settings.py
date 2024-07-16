@@ -53,6 +53,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "apitally.django_rest_framework.ApitallyMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -187,6 +188,7 @@ RESEND_API_KEY = env("RESEND_API_KEY")
 SCRAPING_FISH_API_KEY = env("SCRAPING_FISH_API_KEY")
 COHERE_API_KEY = env("COHERE_API_KEY")
 SENTRY_DSN = env("SENTRY_DSN")
+APITALLY_CLIENT_ID = env("APITALLY_CLIENT_ID")
 
 # Sentry
 sentry_sdk.init(
@@ -195,3 +197,9 @@ sentry_sdk.init(
     profiles_sample_rate=1.0,
     environment="production" if not DEBUG else "development",
 )
+
+# Apitally
+APITALLY_MIDDLEWARE = {
+    "client_id": APITALLY_CLIENT_ID,
+    "env": "prod" if not DEBUG else "dev",
+}

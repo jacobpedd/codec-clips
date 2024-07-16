@@ -2,8 +2,10 @@ amqp==5.2.0
 annotated-types==0.7.0
 anthropic==0.30.0
 anyio==4.4.0
+apitally==0.11.0
 asgiref==3.8.1
 assemblyai==0.28.1
+backoff==2.2.1
 beautifulsoup4==4.12.3
 billiard==4.2.0
 boto3==1.34.136
@@ -37,6 +39,7 @@ httpx-sse==0.4.0
 huggingface-hub==0.23.4
 humanize==4.9.0
 idna==3.7
+inflection==0.5.1
 jiter==0.5.0
 jmespath==1.0.1
 jsonpatch==1.33
@@ -72,6 +75,7 @@ tqdm==4.66.4
 types-requests==2.32.0.20240622
 typing_extensions==4.12.2
 tzdata==2024.1
+uritemplate==4.1.1
 urllib3==2.2.2
 vine==5.1.0
 wcwidth==0.2.13
