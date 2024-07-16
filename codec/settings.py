@@ -202,4 +202,5 @@ sentry_sdk.init(
 APITALLY_MIDDLEWARE = {
     "client_id": APITALLY_CLIENT_ID,
     "env": "prod" if not DEBUG else "dev",
+    "identify_consumer_callback": "web.lib.identify_consumer.identify_consumer",
 }
