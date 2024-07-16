@@ -146,7 +146,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
     ],
-    "DEFAULT_THROTTLE_RATES": {"anon": "100/day", "user": "10000000/day"},
+    "DEFAULT_THROTTLE_RATES": {"anon": "2000/day", "user": "10000000/day"},
 }
 
 # Celery
