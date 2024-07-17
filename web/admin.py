@@ -14,8 +14,6 @@ from .models import (
     ClipUserScore,
     ClipUserView,
     UserFeedFollow,
-    UserTopic,
-    ClipTopic,
 )
 
 
@@ -234,22 +232,6 @@ class UserFeedFollowAdmin(admin.ModelAdmin):
 
     get_feed_name.short_description = "Feed"
     get_feed_name.admin_order_field = "feed__name"
-
-
-@admin.register(UserTopic)
-class UserTopicAdmin(admin.ModelAdmin):
-    list_display = ("user", "text", "is_interested", "created_at")
-    list_filter = ("is_interested", "created_at")
-    search_fields = ("user__username", "text")
-    autocomplete_fields = ("user",)
-
-
-@admin.register(ClipTopic)
-class ClipTopicAdmin(admin.ModelAdmin):
-    list_display = ("clip", "text", "created_at")
-    list_filter = ("created_at",)
-    search_fields = ("clip__name", "text")
-    autocomplete_fields = ("clip",)
 
 
 def duration_string(duration):

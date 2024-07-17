@@ -64,31 +64,6 @@ class UserFeedFollow(models.Model):
         return f"{self.user.username} follows {self.feed.name}"
 
 
-class UserTopic(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="topics")
-    is_interested = models.BooleanField()
-    text = models.CharField(max_length=1000)
-    created_at = models.DateTimeField(default=timezone.now)
-
-    class Meta:
-        unique_together = ("user", "text")
-
-    def __str__(self):
-        return f"{self.user.username} {'interested in' if self.is_interested else 'not interested in'} {self.text}"
-
-
-class ClipTopic(models.Model):
-    clip = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="topics")
-    text = models.CharField(max_length=1000)
-    created_at = models.DateTimeField(default=timezone.now)
-
-    class Meta:
-        unique_together = ("clip", "text")
-
-    def __str__(self):
-        return f"{self.clip.name} - {self.text}"
-
-
 class ClipUserScore(models.Model):
     score = models.FloatField()
     created_at = models.DateTimeField(default=timezone.now)

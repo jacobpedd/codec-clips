@@ -199,7 +199,6 @@ def get_user_rank_examples(user_id: str) -> [ClassifyExample]:
     base_query = (
         ClipUserView.objects.filter(user_id=user_id)
         .select_related("clip__feed_item__feed")
-        .prefetch_related(Prefetch("clip__topics", to_attr="prefetched_topics"))
         .order_by("-created_at")
     )
 

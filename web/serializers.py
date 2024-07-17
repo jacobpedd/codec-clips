@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from web.models import Clip, ClipUserView, FeedItem, Feed, UserFeedFollow, UserTopic
+from web.models import Clip, ClipUserView, FeedItem, Feed, UserFeedFollow
 
 
 class TimestampedSerializer(serializers.ModelSerializer):
@@ -55,13 +55,6 @@ class HistorySerializer(TimestampedSerializer):
     class Meta:
         model = ClipUserView
         fields = ["id", "clip", "duration", "created_at", "updated_at"]
-
-
-class UserTopicSerializer(TimestampedSerializer):
-    class Meta:
-        model = UserTopic
-        fields = ["id", "user", "is_interested", "text", "created_at"]
-        read_only_fields = ["user"]
 
 
 class UserFeedFollowSerializer(TimestampedSerializer):

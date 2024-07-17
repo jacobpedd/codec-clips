@@ -31,7 +31,6 @@ from web.models import (
     Clip,
     ClipUserView,
     UserFeedFollow,
-    UserTopic,
     Feed,
 )
 import resend
@@ -144,17 +143,6 @@ class ViewViewSet(viewsets.ModelViewSet):
             serializer.data,
             status=status.HTTP_200_OK if not created else status.HTTP_201_CREATED,
         )
-
-
-class UserTopicViewSet(viewsets.ModelViewSet):
-    serializer_class = serializers.UserTopicSerializer
-    permission_classes = [IsAuthenticated]
-
-    def get_queryset(self):
-        return UserTopic.objects.filter(user=self.request.user).order_by("created_at")
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
 
 
 class UserFeedFollowViewSet(viewsets.ModelViewSet):
