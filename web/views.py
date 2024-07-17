@@ -300,7 +300,7 @@ class PasswordResetRequestView(APIView):
         resend.api_key = settings.RESEND_API_KEY
         r = resend.Emails.send(
             {
-                "from": "noreply@readbox.app",  # TODO: Change to prod domain
+                "from": "noreply@trycodec.com",
                 "to": email,
                 "subject": "Password Reset Request",
                 "html": f"Click <a href='{reset_link}'>here</a> to reset your password.",
