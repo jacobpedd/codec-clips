@@ -11,3 +11,7 @@ app = Celery("codec")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 # load task modules from all registered Django apps
 app.autodiscover_tasks()
+
+# Priority settings
+app.conf.task_queue_max_priority = 10
+app.conf.task_default_priority = 5

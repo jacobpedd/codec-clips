@@ -163,15 +163,14 @@ CELERY_BEAT_SCHEDULE = {
         "task": "web.tasks.crawler_tasks.crawl_itunes",
         "schedule": crontab(minute=0, hour=10, day_of_week="tuesday"),  # Tues 3am PST
     },
-    # TODO: Re-enable when ready
-    # "rank-new-clips-hourly": {
-    #     "task": "web.tasks.ranker_tasks.rank_new_clips",
-    #     "schedule": crontab(minute=30, hour="*"),
-    # },
-    # "re-rank-every-10-minutes": {
-    #     "task": "web.tasks.ranker_tasks.re_rank_using_views",
-    #     "schedule": crontab(minute="*/10"),
-    # },
+    "rank-new-clips-hourly": {
+        "task": "web.tasks.ranker_tasks.rank_new_clips",
+        "schedule": crontab(minute=30, hour="*"),
+    },
+    "re-rank-every-10-minutes": {
+        "task": "web.tasks.ranker_tasks.re_rank_using_views",
+        "schedule": crontab(minute="*/10"),
+    },
     "calculate-feed-popularity-every-10-minutes": {
         "task": "web.tasks.ranker_tasks.rank_all_feeds_popularity",
         "schedule": crontab(minute="*/10"),

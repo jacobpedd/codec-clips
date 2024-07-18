@@ -40,7 +40,7 @@ def rank_all_feeds_popularity() -> None:
     print("Successfully updated percentile ranks for all Feed instances")
 
 
-@shared_task
+@shared_task(priority=0)
 def re_rank_using_views() -> None:
     # Get all user_ids
     user_ids = User.objects.all().values_list("id", flat=True)
@@ -59,7 +59,7 @@ def re_rank_using_views() -> None:
     )
 
 
-@shared_task
+@shared_task(priority=0)
 def re_rank_using_views_for_user(user_id: int) -> None:
     # Check how many unprocessed ClipUserViews for user
     unprocessed_count = ClipUserView.objects.filter(
@@ -96,7 +96,7 @@ def re_rank_using_views_for_user(user_id: int) -> None:
     logging.info(f"Started re-ranking process for user {user_id}")
 
 
-@shared_task
+@shared_task(priority=0)
 def complete_re_rank_for_user(results, user_id: int):
     # 'results' parameter will contain the results from the previous tasks in the chain
     # We don't need to use it, but it needs to be there to accept the passed results
@@ -127,7 +127,7 @@ def rank_new_clips() -> None:
     )
 
 
-@shared_task
+@shared_task(priority=0)
 def rank_new_clips_for_user(user_id: int) -> None:
     # Get clips less than 1 week old that aren't viewed or ranked for user
     one_week_ago = datetime.now() - timedelta(days=7)
@@ -164,7 +164,7 @@ def rank_new_clips_for_user(user_id: int) -> None:
         logging.info(f"No new clips to rank for user {user_id}")
 
 
-@shared_task(rate_limit="10000/m")
+@shared_task(rate_limit="10000/m", priority=0)
 def rank_clips_for_user(user_id: int, clip_ids: [int]) -> None:
     if len(clip_ids) == 0:
         return
