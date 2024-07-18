@@ -1,7 +1,6 @@
 from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
-from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 import numpy as np
 
@@ -22,6 +21,7 @@ class Feed(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField()
     total_itunes_ratings = models.IntegerField(default=0)
+    popularity_percentile = models.FloatField(default=0.0)
     topic_embedding = models.JSONField(
         default=default_topic_embedding,
         validators=[validate_embedding_size, validate_list_of_floats]

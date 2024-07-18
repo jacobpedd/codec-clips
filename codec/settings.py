@@ -172,6 +172,10 @@ CELERY_BEAT_SCHEDULE = {
     #     "task": "web.tasks.ranker_tasks.re_rank_using_views",
     #     "schedule": crontab(minute="*/10"),
     # },
+    "calculate-feed-popularity-every-10-minutes": {
+        "task": "web.tasks.ranker_tasks.rank_all_feeds_popularity",
+        "schedule": crontab(minute="*/10"),
+    },
 }
 CELERY_RESULT_EXTENDED = True
 

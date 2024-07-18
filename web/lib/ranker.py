@@ -17,7 +17,7 @@ def rank_feeds_for_user(user_id: int) -> None:
     ).select_related("feed")
 
     if len(followed_feeds) < 3:
-        logging.info(f"Not enough followed feeds for user {user_id}")
+        print(f"Not enough followed feeds for user {user_id}")
         return
 
     # Calculate average embedding of followed feeds
@@ -27,9 +27,13 @@ def rank_feeds_for_user(user_id: int) -> None:
     avg_followed_embedding = np.mean(followed_embeddings, axis=0)
 
     # Get all other English feeds with topics
-    input_feeds = Feed.objects.filter(topics__isnull=False, is_english=True).exclude(
-        id__in=[feed.feed.id for feed in followed_feeds]
+    input_feeds = (
+        Feed.objects.filter(topics__isnull=False, is_english=True)
+        .exclude(id__in=[feed.feed.id for feed in followed_feeds])
+        .distinct()
     )
+
+    print(f"Found {len(input_feeds)} feeds to rank for user {user_id}")
 
     # Calculate scores and create FeedUserScore objects
     feed_user_scores = []
@@ -44,6 +48,8 @@ def rank_feeds_for_user(user_id: int) -> None:
             )
         )
 
+    print(f"Ranked {len(feed_user_scores)} feeds for user {user_id}")
+
     # Bulk create scores
     FeedUserScore.objects.bulk_create(
         feed_user_scores,
@@ -52,7 +58,7 @@ def rank_feeds_for_user(user_id: int) -> None:
         unique_fields=["user_id", "feed_id"],
     )
 
-    logging.info(
+    print(
         f"Completed ranking for user {user_id}. Processed {len(feed_user_scores)} feeds."
     )
 
