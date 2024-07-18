@@ -6,10 +6,6 @@ from django.conf import settings
 from django.db import migrations, models
 
 
-def table_exists(apps, schema_editor, table_name):
-    return table_name in schema_editor.connection.introspection.table_names()
-
-
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -18,11 +14,25 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(
-            code=lambda apps, schema_editor: None,
-            reverse_code=lambda apps, schema_editor: None,
-            hints={"target_db": "default"},
-            atomic=True,
+        migrations.AlterUniqueTogether(
+            name="userfeedfollow",
+            unique_together=None,
+        ),
+        migrations.RemoveField(
+            model_name="userfeedfollow",
+            name="feed",
+        ),
+        migrations.RemoveField(
+            model_name="userfeedfollow",
+            name="user",
+        ),
+        migrations.AlterUniqueTogether(
+            name="usertopic",
+            unique_together=None,
+        ),
+        migrations.RemoveField(
+            model_name="usertopic",
+            name="user",
         ),
         migrations.AlterField(
             model_name="clipuserscore",
@@ -114,16 +124,13 @@ class Migration(migrations.Migration):
                 "unique_together": {("user", "feed")},
             },
         ),
-        migrations.RunPython(
-            code=lambda apps, schema_editor: (
-                [
-                    schema_editor.execute("DROP TABLE IF EXISTS web_userfeedfollow"),
-                    schema_editor.execute("DROP TABLE IF EXISTS web_usertopic"),
-                    schema_editor.execute("DROP TABLE IF EXISTS web_cliptopic"),
-                ]
-                if table_exists(apps, schema_editor, "web_userfeedfollow")
-                else None
-            ),
-            reverse_code=migrations.RunPython.noop,
+        migrations.DeleteModel(
+            name="ClipTopic",
+        ),
+        migrations.DeleteModel(
+            name="UserFeedFollow",
+        ),
+        migrations.DeleteModel(
+            name="UserTopic",
         ),
     ]
