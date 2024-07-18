@@ -298,6 +298,21 @@ class FeedUserInterestAdmin(admin.ModelAdmin):
     get_feed_name.admin_order_field = "feed__name"
 
 
+class UsernameFilter(admin.SimpleListFilter):
+    title = "Username"
+    parameter_name = "username"
+
+    def lookups(self, request, model_admin):
+        usernames = set(
+            FeedUserScore.objects.values_list("user__username", flat=True).distinct()
+        )
+        return [(username, username) for username in usernames]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(user__username=self.value())
+
+
 @admin.register(FeedUserScore)
 class FeedUserScoreAdmin(admin.ModelAdmin):
     list_display = (
@@ -307,7 +322,7 @@ class FeedUserScoreAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    list_filter = ("score", "created_at")
+    list_filter = (UsernameFilter, "created_at")
     search_fields = ("user__username", "feed__name")
     autocomplete_fields = ("user", "feed")
 
