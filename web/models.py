@@ -1,15 +1,48 @@
 from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
+from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ValidationError
+import numpy as np
 
+def validate_embedding_size(value):
+    # 1024 is the size of cohere's embed-english-v3.0 embedding
+    if not isinstance(value, list) or len(value) != 1024:
+        raise ValidationError('Topic embedding must be a list of 1024 floats.')
+
+def validate_list_of_floats(value):
+    if not all(isinstance(item, (int, float)) for item in value):
+        raise ValidationError('All items in the list must be numbers.')
+
+def default_topic_embedding():
+    return list([0.0] * 1024)
 
 class Feed(models.Model):
     url = models.URLField(unique=True)
     name = models.CharField(max_length=255)
     description = models.TextField()
     total_itunes_ratings = models.IntegerField(default=0)
+    topic_embedding = models.JSONField(
+        default=default_topic_embedding,
+        validators=[validate_embedding_size, validate_list_of_floats]
+    )
+    language = models.CharField(max_length=100)
+    is_english = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+
+    def get_topic_embedding(self):
+        """Retrieve the topic embedding as a numpy array."""
+        if self.topic_embedding:
+            return np.array(self.topic_embedding)
+        return None
+
+    def set_topic_embedding(self, embedding):
+        """Set the topic embedding from a numpy array or list."""
+        if isinstance(embedding, np.ndarray):
+            embedding = embedding.tolist()
+        self.topic_embedding = embedding
+        self.full_clean()  # This will run the validators
 
     def __str__(self):
         return self.name
@@ -29,6 +62,18 @@ class FeedItem(models.Model):
 
     def __str__(self):
         return self.name
+    
+class FeedTopic(models.Model):
+    text = models.CharField(max_length=1000)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    feed = models.ForeignKey(Feed, on_delete=models.CASCADE, related_name="topics")
+
+    class Meta:
+        unique_together = ("feed", "text")
+
+    def __str__(self):
+        return self.text
 
 
 class Clip(models.Model):
