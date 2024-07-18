@@ -48,29 +48,13 @@ class Clip(models.Model):
         return self.name
 
 
-class UserFeedFollow(models.Model):
-    user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="feed_follows"
-    )
-    feed = models.ForeignKey(
-        Feed, on_delete=models.CASCADE, related_name="user_follows"
-    )
-    created_at = models.DateTimeField(default=timezone.now)
-
-    class Meta:
-        unique_together = ("user", "feed")
-
-    def __str__(self):
-        return f"{self.user.username} follows {self.feed.name}"
-
-
 class ClipUserScore(models.Model):
     score = models.FloatField()
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     clip = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="user_scores")
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="clip_user_scores"
+        User, on_delete=models.CASCADE, related_name="user_clip_scores"
     )
 
     class Meta:
@@ -87,7 +71,7 @@ class ClipUserView(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     clip = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="user_views")
     user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="clip_user_views"
+        User, on_delete=models.CASCADE, related_name="user_clip_views"
     )
 
     class Meta:
@@ -97,3 +81,37 @@ class ClipUserView(models.Model):
         return (
             f"{self.user.username} viewed {self.clip.name} for {self.duration} seconds"
         )
+    
+
+class FeedUserInterest(models.Model):
+    is_interested = models.BooleanField()
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="feed_follows"
+    )
+    feed = models.ForeignKey(
+        Feed, on_delete=models.CASCADE, related_name="user_follows"
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ("user", "feed")
+
+    def __str__(self):
+        return f"{self.user.username} {"follows" if self.is_interested else "blocks"} {self.feed.name}"
+    
+
+class FeedUserScore(models.Model):
+    score = models.FloatField()
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="feed_scores"
+    )
+    feed = models.ForeignKey(Feed, on_delete=models.CASCADE, related_name="user_scores")
+
+    class Meta:
+        unique_together = ("user", "feed")
+
+    def __str__(self):
+        return f"{self.user.username} rated {self.feed.name} with score {self.score}"

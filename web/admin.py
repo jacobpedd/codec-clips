@@ -13,7 +13,8 @@ from .models import (
     Clip,
     ClipUserScore,
     ClipUserView,
-    UserFeedFollow,
+    FeedUserInterest,
+    FeedUserScore,
 )
 
 
@@ -220,9 +221,9 @@ class ClipUserViewAdmin(admin.ModelAdmin):
     search_fields = ("user__username", "clip__name")
 
 
-@admin.register(UserFeedFollow)
-class UserFeedFollowAdmin(admin.ModelAdmin):
-    list_display = ("user", "get_feed_name", "created_at")
+@admin.register(FeedUserInterest)
+class FeedUserInterestAdmin(admin.ModelAdmin):
+    list_display = ("user", "get_feed_name", "is_interested", "created_at")
     list_filter = ("created_at",)
     search_fields = ("user__username", "feed__name")
     autocomplete_fields = ("user", "feed")
@@ -232,6 +233,36 @@ class UserFeedFollowAdmin(admin.ModelAdmin):
 
     get_feed_name.short_description = "Feed"
     get_feed_name.admin_order_field = "feed__name"
+
+
+@admin.register(FeedUserScore)
+class FeedUserScoreAdmin(admin.ModelAdmin):
+    list_display = (
+        "get_username",
+        "get_feed_name",
+        "score",
+        "created_at",
+        "updated_at",
+    )
+    list_filter = ("score", "created_at")
+    search_fields = ("user__username", "feed__name")
+    autocomplete_fields = ("user", "feed")
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        return queryset.select_related("user", "feed")
+
+    def get_feed_name(self, obj):
+        return obj.feed.name
+
+    get_feed_name.admin_order_field = "feed__name"
+    get_feed_name.short_description = "Feed"
+
+    def get_username(self, obj):
+        return obj.user.username
+
+    get_username.admin_order_field = "user__username"
+    get_username.short_description = "User"
 
 
 def duration_string(duration):
