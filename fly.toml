@@ -10,7 +10,7 @@ console_command = '/code/manage.py shell'
 [build]
 
 [processes]
-  app = "python -m gunicorn --bind :8000 --workers 2 codec.wsgi"
+  app = "python -m gunicorn --bind :8000 --timeout 180 codec.wsgi"
   worker = "python -m celery -A codec worker -B --concurrency=2 -l info"
   flower = "python -m celery -A codec flower -l info"
 
