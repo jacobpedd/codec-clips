@@ -1,17 +1,19 @@
 import re
 from assemblyai import TranscriptError
+from cohere import Client
 import requests
 import datetime
 from celery import shared_task, group
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from celery.utils.log import get_task_logger
+from codec import settings
 from web.lib.crawler import (
     crawl_itunes_podcast_links,
     crawl_itunes_ratings,
     crawl_rss_feed,
     itunes_podcast_lookup,
 )
-from web.models import Feed, FeedItem
+from web.models import Feed, FeedItem, FeedTopic
 from web.lib.r2 import handle_r2_audio_upload
 from web.lib.transcribe import transcribe
 from web.lib.parsing import get_duration
@@ -140,7 +142,7 @@ def crawl_top_feeds() -> None:
 )
 def crawl_feed(feed_id: int) -> None:
     """crawl and parse the RSS feeds."""
-    feed = Feed.objects.get(id=feed_id)
+    feed = Feed.objects.prefetch_related("topics").get(id=feed_id)
     logging.info("[Started] Checking for new episodes from %s ....", feed.name)
 
     # Crawl the RSS feed
@@ -154,6 +156,36 @@ def crawl_feed(feed_id: int) -> None:
         logging.info(
             "Feed name or description changed, updated feed name and description."
         )
+
+    # Check if feed language changed
+    if feed_data["language"] != feed.language:
+        feed.language = feed_data["language"]
+        feed.is_english = "en" in feed.language.lower()
+        feed.save()
+        logging.info("Feed language changed, updated feed language and is_english.")
+
+    # Check if feed topics changed and bulk create new topics
+    if "topics" in feed_data:
+        existing_topics = set(feed.topics.values_list("text", flat=True))
+        new_topics = set(feed_data["topics"]) - existing_topics
+
+        if new_topics:
+            with transaction.atomic():
+                FeedTopic.objects.bulk_create(
+                    [FeedTopic(feed=feed, text=topic) for topic in new_topics],
+                    ignore_conflicts=True,
+                )
+
+                # calculate topic embeddings
+                text = " ".join(list(set(feed_data["topics"])))
+                co = Client(settings.COHERE_API_KEY)
+                topic_embedding = co.embed(
+                    texts=[text], model="embed-english-v3.0", input_type="clustering"
+                ).embeddings[0]
+                feed.set_topic_embedding(topic_embedding)
+                feed.save()
+
+            logging.info(f"Added {len(new_topics)} new topics to feed: {feed.name}")
 
     if entry_data["audio_url"] is None:
         logging.warning(f"Entry has no audio URL: {entry_data}")

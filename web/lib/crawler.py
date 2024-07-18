@@ -65,9 +65,17 @@ def crawl_rss_feed(rss_feed_url: str) -> list:
     # Crawl the RSS feed
     rss_feed = feedparser.parse(rss_feed_url)
 
+    keywords = []
+    if "tags" in rss_feed.feed:
+        for tag in rss_feed.feed.tags:
+            keywords.append(tag["term"].capitalize())
+    topics = list(set(keywords))
+
     feed_data = {
         "title": rss_feed.feed.title,
         "description": rss_feed.feed.description,
+        "topics": topics,
+        "language": rss_feed.feed.language,
     }
 
     # Get the first entry
