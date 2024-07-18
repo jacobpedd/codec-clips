@@ -52,7 +52,6 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    "apitally.django_rest_framework.ApitallyMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -62,6 +61,9 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+if not DEBUG:
+    MIDDLEWARE += ("apitally.django_rest_framework.ApitallyMiddleware",)
 
 ROOT_URLCONF = "codec.urls"
 
@@ -161,14 +163,15 @@ CELERY_BEAT_SCHEDULE = {
         "task": "web.tasks.crawler_tasks.crawl_itunes",
         "schedule": crontab(minute=0, hour=10, day_of_week="tuesday"),  # Tues 3am PST
     },
-    "rank-new-clips-hourly": {
-        "task": "web.tasks.ranker_tasks.rank_new_clips",
-        "schedule": crontab(minute=30, hour="*"),
-    },
-    "re-rank-every-10-minutes": {
-        "task": "web.tasks.ranker_tasks.re_rank_using_views",
-        "schedule": crontab(minute="*/10"),
-    },
+    # TODO: Re-enable when ready
+    # "rank-new-clips-hourly": {
+    #     "task": "web.tasks.ranker_tasks.rank_new_clips",
+    #     "schedule": crontab(minute=30, hour="*"),
+    # },
+    # "re-rank-every-10-minutes": {
+    #     "task": "web.tasks.ranker_tasks.re_rank_using_views",
+    #     "schedule": crontab(minute="*/10"),
+    # },
 }
 CELERY_RESULT_EXTENDED = True
 
@@ -189,18 +192,19 @@ COHERE_API_KEY = env("COHERE_API_KEY")
 SENTRY_DSN = env("SENTRY_DSN")
 APITALLY_CLIENT_ID = env("APITALLY_CLIENT_ID")
 
-# Sentry
-sentry_sdk.init(
-    dsn=SENTRY_DSN,
-    traces_sample_rate=1.0,
-    profiles_sample_rate=1.0,
-    environment="production" if not DEBUG else "development",
-    send_default_pii=True,
-)
+if not DEBUG:
+    # Sentry
+    sentry_sdk.init(
+        dsn=SENTRY_DSN,
+        traces_sample_rate=1.0,
+        profiles_sample_rate=1.0,
+        environment="production",
+        send_default_pii=True,
+    )
 
-# Apitally
-APITALLY_MIDDLEWARE = {
-    "client_id": APITALLY_CLIENT_ID,
-    "env": "prod" if not DEBUG else "dev",
-    "identify_consumer_callback": "web.lib.identify_consumer.identify_consumer",
-}
+    # Apitally
+    APITALLY_MIDDLEWARE = {
+        "client_id": APITALLY_CLIENT_ID,
+        "env": "prod",
+        "identify_consumer_callback": "web.lib.identify_consumer.identify_consumer",
+    }
