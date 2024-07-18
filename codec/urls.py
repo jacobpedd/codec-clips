@@ -8,7 +8,7 @@ router.register(r"queue", views.QueueViewSet, basename="queue")
 router.register(r"feed", views.FeedViewSet, basename="feed")
 router.register(r"view", views.ViewViewSet, basename="view")
 router.register(r"history", views.HistoryViewSet, basename="history")
-router.register(r"following", views.UserFeedFollowViewSet, basename="following")
+router.register(r"following", views.FeedUserInterestViewSet, basename="following")
 
 urlpatterns = [
     # put api routes at the root

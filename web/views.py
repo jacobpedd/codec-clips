@@ -30,7 +30,7 @@ from web import serializers
 from web.models import (
     Clip,
     ClipUserView,
-    UserFeedFollow,
+    FeedUserInterest,
     Feed,
 )
 import resend
@@ -52,7 +52,11 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
             exclude_clip_ids = exclude_clip_ids[0].split(",")
 
         base_queryset = (
-            Clip.objects.filter(created_at__gte=one_week_ago, user_scores__user=user)
+            Clip.objects.filter(
+                created_at__gte=one_week_ago,
+                user_scores__user=user,
+                feed_item__feed__is_english=True,
+            )
             .exclude(user_views__user=user)
             .exclude(id__in=exclude_clip_ids)
             .select_related("feed_item__feed")
@@ -81,12 +85,12 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class FeedViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = Feed.objects.all()
+    queryset = Feed.objects.all().filter(is_english=True)
     serializer_class = serializers.FeedSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        queryset = Feed.objects.all()
+        queryset = Feed.objects.all().filter(is_english=True)
         search_query = self.request.query_params.get("search", None)
 
         if search_query:
@@ -145,12 +149,12 @@ class ViewViewSet(viewsets.ModelViewSet):
         )
 
 
-class UserFeedFollowViewSet(viewsets.ModelViewSet):
-    serializer_class = serializers.UserFeedFollowSerializer
+class FeedUserInterestViewSet(viewsets.ModelViewSet):
+    serializer_class = serializers.FeedUserInterestSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        return UserFeedFollow.objects.filter(user=self.request.user).order_by(
+        return FeedUserInterest.objects.filter(user=self.request.user).order_by(
             "created_at"
         )
 

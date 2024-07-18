@@ -3,7 +3,7 @@ from django.contrib import admin, messages
 from django.contrib.admin import SimpleListFilter
 from django.utils.html import format_html
 from django.urls import reverse
-from django.db.models import Count
+from django.db.models import Count, Exists, OuterRef
 from django.db import transaction
 
 from web.tasks import crawl_feed, generate_clips_from_feed_item
@@ -13,9 +13,62 @@ from .models import (
     Clip,
     ClipUserScore,
     ClipUserView,
+    FeedTopic,
     FeedUserInterest,
     FeedUserScore,
 )
+
+
+class HasItemsFilter(SimpleListFilter):
+    title = "has items"
+    parameter_name = "has_items"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "Yes"),
+            ("no", "No"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(items__isnull=False).distinct()
+        if self.value() == "no":
+            return queryset.filter(items__isnull=True)
+
+
+class FeedHasClipsFilter(SimpleListFilter):
+    title = "has clips"
+    parameter_name = "has_clips"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "Yes"),
+            ("no", "No"),
+        )
+
+    def queryset(self, request, queryset):
+        clips_exist = Exists(Clip.objects.filter(feed_item__feed=OuterRef("pk")))
+        if self.value() == "yes":
+            return queryset.filter(clips_exist)
+        if self.value() == "no":
+            return queryset.filter(~clips_exist)
+
+
+class IsEnglishFilter(SimpleListFilter):
+    title = "Is English"
+    parameter_name = "is_english"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "Yes"),
+            ("no", "No"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(is_english=True)
+        if self.value() == "no":
+            return queryset.filter(is_english=False)
 
 
 @admin.register(Feed)
@@ -28,8 +81,9 @@ class FeedAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
+    list_filter = ("created_at", HasItemsFilter, FeedHasClipsFilter, IsEnglishFilter)
     search_fields = ("name", "url")
-    actions = ["crawl_selected_feeds"]
+    actions = ["crawl_selected_feeds", "set_selected_feeds_is_english"]
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)
@@ -71,10 +125,19 @@ class FeedAdmin(admin.ModelAdmin):
             request, f"crawl task initiated for {queryset.count()} feeds."
         )
 
+    def set_selected_feeds_is_english(self, request, queryset):
+        for feed in queryset:
+            feed.is_english = True
+            feed.save()
+        self.message_user(
+            request, f"set_is_english task initiated for {queryset.count()} feeds."
+        )
+
     crawl_selected_feeds.short_description = "crawl selected feeds"
+    set_selected_feeds_is_english.short_description = "set is_english"
 
 
-class HasClipsFilter(SimpleListFilter):
+class FeedItemHasClipsFilter(SimpleListFilter):
     title = "has clips"
     parameter_name = "has_clips"
 
@@ -103,7 +166,7 @@ class FeedItemAdmin(admin.ModelAdmin):
         "posted_at",
         "created_at",
     )
-    list_filter = ("posted_at", HasClipsFilter)
+    list_filter = ("posted_at", FeedItemHasClipsFilter)
     search_fields = ("name", "body", "feed__name")
 
     actions = ["delete_and_regenerate_clips"]
@@ -273,3 +336,16 @@ def duration_string(duration):
         return f"{hours}:{minutes:02d}:{seconds:02d}"
     else:
         return f"{minutes}:{seconds:02d}"
+
+
+@admin.register(FeedTopic)
+class FeedTopicAdmin(admin.ModelAdmin):
+    list_display = ("text", "get_feed_name", "created_at", "updated_at")
+    list_filter = ("feed", "created_at")
+    search_fields = ("text", "feed__name")
+
+    def get_feed_name(self, obj):
+        return obj.feed.name
+
+    get_feed_name.admin_order_field = "feed__name"
+    get_feed_name.short_description = "Feed"

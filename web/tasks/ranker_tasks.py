@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta
-from cohere import ClassifyExample, Client
 from celery import chain, group, shared_task
-from django.utils import timezone
-from django.db.models import Exists, OuterRef, Prefetch
-from web.models import Clip, ClipUserScore, ClipUserView
+from cohere import Client
+from django.db.models import Exists, OuterRef
 from codec import settings
+from web.lib.ranker import clip_to_text, get_user_clip_examples
+from web.models import Clip, ClipUserScore, ClipUserView
 from django.contrib.auth.models import User
 from celery.utils.log import get_task_logger
 
@@ -147,40 +147,40 @@ def rank_clips_for_user(user_id: int, clip_ids: [int]) -> None:
         raise ValueError("Too many clips to rank")
 
     # Get examples for user
-    examples = get_user_rank_examples(user_id)
+    examples = get_user_clip_examples(user_id)
 
     # Cohere requires at least 2 examples per label
     complete_count = len([e for e in examples if e.label == "Complete"])
     skipped_count = len([e for e in examples if e.label == "Skipped"])
     if complete_count < 2 or skipped_count < 2:
         # Can't rank clips yet, cold start the user
+        logging.info(f"Not enough examples for user {user_id}")
         return
 
     # Get clips to rank
     clips = Clip.objects.filter(id__in=clip_ids)
-    inputs = [
-        {
-            "text": clip_to_text(clip),
-            "name": clip.name,
-            "id": clip.id,
-        }
-        for clip in clips
-    ]
+    clips_text = [clip_to_text(clip) for clip in clips]
 
     response = co.classify(
         examples=examples,
-        inputs=[input["text"] for input in inputs],
+        inputs=clips_text,
     )
+
+    # Return list of scores based on the classification
+    scores = [
+        classification.labels["Complete"].confidence
+        for classification in response.classifications
+    ]
 
     # Prepare data for bulk upsert
     clip_user_scores = []
-    for input, classification in zip(inputs, response.classifications):
+    for clip_id, score in zip(clip_ids, scores):
         # Reset score from 0 to 1 -> 0 -> 100
         clip_user_scores.append(
             ClipUserScore(
                 user_id=user_id,
-                clip_id=input["id"],
-                score=classification.labels["Complete"].confidence,
+                clip_id=clip_id,
+                score=score,
             )
         )
 
@@ -192,52 +192,3 @@ def rank_clips_for_user(user_id: int, clip_ids: [int]) -> None:
         unique_fields=["user_id", "clip_id"],
     )
     logging.info(f"Ranked {len(results)} clips for user {user_id}")
-
-
-def get_user_rank_examples(user_id: str) -> [ClassifyExample]:
-    # Get base queryset
-    base_query = (
-        ClipUserView.objects.filter(user_id=user_id)
-        .select_related("clip__feed_item__feed")
-        .order_by("-created_at")
-    )
-
-    # Exclude the most recent view if it's less than 10 min old
-    ten_minutes_ago = timezone.now() - timedelta(minutes=10)
-    most_recent_view = base_query.first()
-    if most_recent_view and most_recent_view.created_at > ten_minutes_ago:
-        logging.info(f"Excluding most recent view because it might be in progress")
-        base_query = base_query.exclude(id=most_recent_view.id)
-
-    # Limit to 2500 examples (max for cohere's classify endpoint)
-    user_views = base_query[:2500]
-
-    # Create cohere examples for each user view
-    examples = []
-    for user_view in user_views:
-        label = "Complete" if user_view.duration > 90 else "Skipped"
-        examples.append(
-            ClassifyExample(
-                text=clip_to_text(user_view.clip),
-                label=label,
-            )
-        )
-    return examples
-
-
-def clip_to_text(clip: Clip):
-    # Returns ~500 tokens per clip, will be truncated at end if needed
-    clip_duration = (clip.end_time - clip.start_time) / 1000.0
-    clip_minutes = int(clip_duration // 60)
-    clip_seconds = int(clip_duration % 60)
-
-    return "\n".join(
-        [
-            f"Clip Name: {clip.name}",
-            f"Clip Summary: {clip.summary}",
-            f"Duration: {clip_minutes}m {clip_seconds}s",
-            f"Episode Description: {clip.feed_item.body[:1000]}",
-            f"Podcast Name: {clip.feed_item.feed.name}",
-            f"Podcast Description: {clip.feed_item.feed.description[:1000]}",
-        ]
-    )
