@@ -84,6 +84,7 @@ class FeedAdmin(admin.ModelAdmin):
     list_filter = ("created_at", HasItemsFilter, FeedHasClipsFilter, IsEnglishFilter)
     search_fields = ("name", "url")
     actions = ["crawl_selected_feeds", "set_selected_feeds_is_english"]
+    exclude = ("topic_embedding",)  # some pg-vector bug breaks the admin
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)

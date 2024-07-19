@@ -16,7 +16,17 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.contrib.auth.tokens import default_token_generator
 from django.db import IntegrityError, connection
-from django.db.models import Q, F, Case, When, Value, FloatField, Subquery, OuterRef
+from django.db.models import (
+    Q,
+    F,
+    Case,
+    When,
+    Value,
+    FloatField,
+    Subquery,
+    OuterRef,
+    Avg,
+)
 from django.shortcuts import render
 from django.views import View
 from django.http import JsonResponse
@@ -26,6 +36,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.utils.decorators import method_decorator
 from django.conf import settings
 from django.urls import reverse
+from pgvector.django import CosineDistance
 from web import serializers
 from web.models import (
     Clip,
@@ -33,9 +44,48 @@ from web.models import (
     ClipUserView,
     FeedUserInterest,
     Feed,
-    FeedUserScore,
 )
 import resend
+
+
+class RecommendedFeedsViewSet(viewsets.ReadOnlyModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = serializers.FeedSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+
+        # Get average embedding of feeds the user is interested in
+        avg_embedding = FeedUserInterest.objects.filter(
+            user=user, is_interested=True
+        ).aggregate(Avg("feed__topic_embedding"))["feed__topic_embedding__avg"]
+
+        if avg_embedding is None:
+            return Response(
+                {"detail": "Not enough data to make recommendations."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Get recommended feeds
+        recommended_feeds = (
+            Feed.objects.filter(is_english=True)
+            .exclude(user_follows__user=user)  # Exclude feeds the user already follows
+            .annotate(
+                similarity=CosineDistance("topic_embedding", avg_embedding),
+                score=Case(
+                    When(
+                        similarity__isnull=False,
+                        then=(1 - F("similarity")) * 0.8
+                        + F("popularity_percentile") * 0.2,
+                    ),
+                    default=F("popularity_percentile"),
+                    output_field=FloatField(),
+                ),
+            )
+            .order_by("-score")
+        )
+
+        return recommended_feeds
 
 
 class QueueViewSet(viewsets.ReadOnlyModelViewSet):
@@ -43,6 +93,7 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     # TODO: Time decay
+    # TODO: Rewrite with dynamic clip scores
     def get_queryset(self):
         user = self.request.user
 
@@ -52,6 +103,10 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
         if len(exclude_clip_ids) == 1 and "," in exclude_clip_ids[0]:
             exclude_clip_ids = exclude_clip_ids[0].split(",")
 
+        if FeedUserInterest.objects.filter(user=user).count() < 3:
+            print("Not enough followed feeds for user")
+            return []
+
         # Subquery to get the latest clip ID for each feed
         latest_clip_subquery = (
             Clip.objects.filter(feed_item__feed=OuterRef("feed_item__feed"))
@@ -59,56 +114,59 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
             .values("id")[:1]
         )
 
-        # Check if we should do cold start or use ClipUserScores
-        ranked_clips = []
+        # Get average embedding of feeds the user is interested in
+        avg_embedding = FeedUserInterest.objects.filter(
+            user=user, is_interested=True
+        ).aggregate(Avg("feed__topic_embedding"))["feed__topic_embedding__avg"]
+
         if ClipUserScore.objects.filter(user=user).count() < 10:
             # Cold start because the user doesn't have enough ClipUserScores
             print("Using cold start")
             ranked_clips = (
                 Clip.objects.filter(
-                    id=Subquery(latest_clip_subquery),  # Latest clip for each feed
-                    feed_item__feed__is_english=True,  # Feed is English
-                    feed_item__feed__user_scores__user=user,  # Feed has a user score
+                    id=Subquery(latest_clip_subquery),
+                    feed_item__feed__is_english=True,
                 )
-                .exclude(id__in=exclude_clip_ids)  # exclude_clip_ids
-                .exclude(user_views__user=user)  # exclude viewed clips
+                .exclude(id__in=exclude_clip_ids)
+                .exclude(user_views__user=user)
                 .annotate(
-                    feed_score=F("feed_item__feed__user_scores__score"),
+                    feed_score=CosineDistance(
+                        "feed_item__feed__topic_embedding", avg_embedding
+                    ),
                     feed_popularity=F("feed_item__feed__popularity_percentile"),
                     combined_score=Case(
                         When(
                             feed_score__isnull=False,
-                            # Combine feed score and popularity
-                            then=F("feed_score") * 0.8 + F("feed_popularity") * 0.2,
+                            then=(1 - F("feed_score")) * 0.8
+                            + F("feed_popularity") * 0.2,
                         ),
                         default=Value(0),
                         output_field=FloatField(),
                     ),
                 )
                 .order_by("-combined_score")[:9]
-            )
+            )[:9]
         else:
-            print("Using clip scores")
             ranked_clips = (
                 Clip.objects.filter(
-                    id=Subquery(latest_clip_subquery),  # Latest clip for each feed
-                    feed_item__feed__is_english=True,  # Feed is English
-                    feed_item__feed__user_scores__user=user,  # Feed has a user score
-                    user_scores__user=user,  # Clip has a user score
+                    id=Subquery(latest_clip_subquery),
+                    feed_item__feed__is_english=True,
+                    user_scores__user=user,
                 )
-                .exclude(id__in=exclude_clip_ids)  # exclude_clip_ids
-                .exclude(user_views__user=user)  # exclude viewed clips
+                .exclude(id__in=exclude_clip_ids)
+                .exclude(user_views__user=user)
                 .annotate(
-                    feed_score=F("feed_item__feed__user_scores__score"),
                     feed_popularity=F("feed_item__feed__popularity_percentile"),
-                    clip_score=F("user_scores__score"),  # Include the ClipUserScore
+                    feed_score=CosineDistance(
+                        "feed_item__feed__topic_embedding", avg_embedding
+                    ),
+                    clip_score=F("user_scores__score"),
                     combined_score=Case(
-                        # Combine feed score, popularity, and clip score
                         When(
                             feed_score__isnull=False,
-                            then=F("feed_score") * 0.4
-                            + F("feed_popularity") * 0.2
-                            + F("clip_score") * 0.4,
+                            then=(1 - F("feed_score")) * 0.4
+                            + F("clip_score") * 0.4
+                            + F("feed_popularity") * 0.2,
                         ),
                         default=Value(0),
                         output_field=FloatField(),
@@ -117,27 +175,25 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
                 .order_by("-combined_score")[:9]
             )
 
-        # Get a random clip
+        # Get a random clip (unchanged)
         one_week_ago = timezone.now() - timedelta(days=7)
         random_clip = (
             Clip.objects.filter(
-                created_at__gte=one_week_ago,  # Created in the last week
-                user_scores__user=user,  # User has a user score
-                feed_item__feed__is_english=True,  # Feed is English
+                created_at__gte=one_week_ago,
+                user_scores__user=user,
+                feed_item__feed__is_english=True,
             )
-            .exclude(user_views__user=user)  # exclude viewed clips
-            .exclude(id__in=exclude_clip_ids)  # exclude_clip_ids
-            .filter(user_scores__score__lt=0.5)  # User score is less than 0.5
-            .order_by("?")  # Random order
+            .exclude(user_views__user=user)
+            .exclude(id__in=exclude_clip_ids)
+            .filter(user_scores__score__lt=0.5)
+            .order_by("?")
             .first()
         )
-        if random_clip is None:
-            return ranked_clips
 
-        # Insert the random clip at a random position in the top clips
         ranked_clips = list(ranked_clips)
-        random_index = random.randint(0, len(ranked_clips))
-        ranked_clips.insert(random_index, random_clip)
+        if random_clip:
+            random_index = random.randint(0, len(ranked_clips))
+            ranked_clips.insert(random_index, random_clip)
 
         return ranked_clips
 

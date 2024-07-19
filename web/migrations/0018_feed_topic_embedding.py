@@ -7,13 +7,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('web', '0017_feed_is_english_feed_language'),
+        ("web", "0017_feed_is_english_feed_language"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='feed',
-            name='topic_embedding',
-            field=models.JSONField(default=web.models.default_topic_embedding, validators=[web.models.validate_embedding_size, web.models.validate_list_of_floats]),
+            model_name="feed",
+            name="topic_embedding",
+            field=models.JSONField(),
         ),
     ]
