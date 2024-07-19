@@ -1,18 +1,17 @@
 import re
 from assemblyai import TranscriptError
-from cohere import Client
 import requests
 import datetime
 from celery import shared_task, group
 from django.db import IntegrityError, transaction
 from celery.utils.log import get_task_logger
-from codec import settings
 from web.lib.crawler import (
     crawl_itunes_podcast_links,
     crawl_itunes_ratings,
     crawl_rss_feed,
     itunes_podcast_lookup,
 )
+from web.lib.embed import get_embedding
 from web.models import Feed, FeedItem, FeedTopic
 from web.lib.r2 import handle_r2_audio_upload
 from web.lib.transcribe import transcribe
@@ -176,14 +175,16 @@ def crawl_feed(feed_id: int) -> None:
                     ignore_conflicts=True,
                 )
 
-                # calculate topic embeddings
+                # Calculate topic embeddings
                 text = " ".join(list(set(feed_data["topics"])))
-                co = Client(settings.COHERE_API_KEY)
-                topic_embedding = co.embed(
-                    texts=[text], model="embed-english-v3.0", input_type="clustering"
-                ).embeddings[0]
-                feed.set_topic_embedding(topic_embedding)
-                feed.save()
+                if text.strip() == "":
+                    print("Empty topic text")
+                else:
+                    topic_embedding = get_embedding(text)
+
+                    # Save the topic embedding
+                    feed.topic_embedding = topic_embedding
+                    feed.save()
 
             logging.info(f"Added {len(new_topics)} new topics to feed: {feed.name}")
 

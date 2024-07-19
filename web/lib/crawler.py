@@ -68,7 +68,8 @@ def crawl_rss_feed(rss_feed_url: str) -> list:
     keywords = []
     if "tags" in rss_feed.feed:
         for tag in rss_feed.feed.tags:
-            keywords.append(tag["term"].capitalize())
+            if tag["term"] is not None:
+                keywords.append(tag["term"].capitalize())
     topics = list(set(keywords))
 
     feed_data = {
