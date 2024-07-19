@@ -5,6 +5,7 @@ from web.lib.r2 import get_audio_transcript_key, handle_r2_transcript_upload
 aai.settings.api_key = settings.ASSEMBLYAI_API_KEY
 transcriber = aai.Transcriber()
 config = aai.TranscriptionConfig(
+    speech_model=aai.SpeechModel.nano,
     speaker_labels=True,
 )
 
@@ -17,7 +18,6 @@ def transcribe(audio_bucket_key: str) -> str:
         return transcript_bucket_key
 
     # Transcribe the audio file using the bucket's public URL and AssemblyAI
-    config = aai.TranscriptionConfig(speaker_labels=True)
     bucket_audio_url = f"{settings.R2_BUCKET_URL}/{audio_bucket_key}"
     print(bucket_audio_url)
     transcript = transcriber.transcribe(bucket_audio_url, config)
