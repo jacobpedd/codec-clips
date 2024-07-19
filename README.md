@@ -16,3 +16,7 @@ Run the celery redis worker:
 ```bash
 celery -A codec worker -B -l info
 ```
+
+## Setup
+
+Need to use PostgreSQL for the database with the pg-vector extension installed to develop locally.
