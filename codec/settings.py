@@ -47,7 +47,6 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "rest_framework",
     "rest_framework.authtoken",
-    "django_celery_results",
     "web.apps.WebConfig",
 ]
 
@@ -165,7 +164,6 @@ REST_FRAMEWORK = {
 
 # Celery
 CELERY_BROKER_URL = env.str("REDIS_URL", "redis://localhost:6379/")
-CELERY_RESULT_BACKEND = env.str("CELERY_RESULT_BACKEND", "django-db")
 # TODO: Uncomment when ready to enable
 # CELERY_BEAT_SCHEDULE = {
 #     "crawl-feeds-every-3-hours": {
