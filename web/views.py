@@ -26,7 +26,10 @@ from django.db.models import (
     Subquery,
     OuterRef,
     Avg,
+    ExpressionWrapper,
+    DurationField,
 )
+from django.db.models.functions import Extract
 from django.shortcuts import render
 from django.views import View
 from django.http import JsonResponse
@@ -116,6 +119,9 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
             user=user, is_interested=True
         ).aggregate(Avg("feed__topic_embedding"))["feed__topic_embedding__avg"]
 
+        # Calculate the time decay factor
+        current_time = timezone.now()
+
         if ClipUserView.objects.filter(user=user).count() < 10:
             print("Using cold start")
             # Cold start: use only feed embeddings if no clip data is available
@@ -131,11 +137,16 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
                         "feed_item__feed__topic_embedding", avg_feed_embedding
                     ),
                     feed_popularity=F("feed_item__feed__popularity_percentile"),
+                    days_old=Extract(current_time - F("feed_item__posted_at"), "day"),
+                    recency_score=ExpressionWrapper(
+                        1 / (1 + F("days_old") / 7), output_field=FloatField()
+                    ),
                     combined_score=Case(
                         When(
                             feed_score__isnull=False,
-                            then=(1 - F("feed_score")) * 0.8
-                            + F("feed_popularity") * 0.2,
+                            then=(1 - F("feed_score")) * 1.0
+                            + F("feed_popularity") * 0.5
+                            + F("recency_score") * 0.5,
                         ),
                         default=Value(0),
                         output_field=FloatField(),
@@ -166,13 +177,18 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
                         "transcript_embedding", avg_clip_embedding
                     ),
                     feed_popularity=F("feed_item__feed__popularity_percentile"),
+                    days_old=Extract(current_time - F("feed_item__posted_at"), "day"),
+                    recency_score=ExpressionWrapper(
+                        1 / (1 + F("days_old") / 7), output_field=FloatField()
+                    ),
                     combined_score=Case(
                         When(
                             feed_score__isnull=False,
                             clip_score__isnull=False,
-                            then=(1 - F("feed_score")) * 0.2
-                            + (1 - F("clip_score")) * 0.6
-                            + F("feed_popularity") * 0.2,
+                            then=(1 - F("feed_score")) * 1.0
+                            + (1 - F("clip_score")) * 1.0
+                            + F("feed_popularity") * 0.5
+                            + F("recency_score") * 0.5,
                         ),
                         default=Value(0),
                         output_field=FloatField(),
