@@ -58,6 +58,7 @@ class Clip(models.Model):
     start_time = models.IntegerField()
     end_time = models.IntegerField()
     audio_bucket_key = models.CharField(max_length=2000)
+    transcript_embedding = VectorField(dimensions=768, default=default_vector)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     feed_item = models.ForeignKey(
@@ -68,25 +69,8 @@ class Clip(models.Model):
         return self.name
 
 
-class ClipUserScore(models.Model):
-    score = models.FloatField()
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-    clip = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="user_scores")
-    user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="user_clip_scores"
-    )
-
-    class Meta:
-        unique_together = ("clip", "user")
-
-    def __str__(self):
-        return f"{self.user.username} rated {self.clip.name} with score {self.score}"
-
-
 class ClipUserView(models.Model):
     duration = models.IntegerField()
-    processed = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     clip = models.ForeignKey(Clip, on_delete=models.CASCADE, related_name="user_views")
@@ -119,19 +103,3 @@ class FeedUserInterest(models.Model):
 
     def __str__(self):
         return f"{self.user.username} {"follows" if self.is_interested else "blocks"} {self.feed.name}"
-    
-
-class FeedUserScore(models.Model):
-    score = models.FloatField()
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-    user = models.ForeignKey(
-        User, on_delete=models.CASCADE, related_name="feed_scores"
-    )
-    feed = models.ForeignKey(Feed, on_delete=models.CASCADE, related_name="user_scores")
-
-    class Meta:
-        unique_together = ("user", "feed")
-
-    def __str__(self):
-        return f"{self.user.username} rated {self.feed.name} with score {self.score}"

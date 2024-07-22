@@ -40,7 +40,6 @@ from pgvector.django import CosineDistance
 from web import serializers
 from web.models import (
     Clip,
-    ClipUserScore,
     ClipUserView,
     FeedUserInterest,
     Feed,
@@ -93,12 +92,10 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
     # TODO: Time decay
-    # TODO: Rewrite with dynamic clip scores
     def get_queryset(self):
         user = self.request.user
 
         # Get exclude_clip_ids from query parameters
-        # If only one exclude_clip_ids param is provided as a comma-separated string, split it
         exclude_clip_ids = self.request.query_params.getlist("exclude_clip_ids", [])
         if len(exclude_clip_ids) == 1 and "," in exclude_clip_ids[0]:
             exclude_clip_ids = exclude_clip_ids[0].split(",")
@@ -115,13 +112,13 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
         # Get average embedding of feeds the user is interested in
-        avg_embedding = FeedUserInterest.objects.filter(
+        avg_feed_embedding = FeedUserInterest.objects.filter(
             user=user, is_interested=True
         ).aggregate(Avg("feed__topic_embedding"))["feed__topic_embedding__avg"]
 
-        if ClipUserScore.objects.filter(user=user).count() < 10:
-            # Cold start because the user doesn't have enough ClipUserScores
+        if ClipUserView.objects.filter(user=user).count() < 10:
             print("Using cold start")
+            # Cold start: use only feed embeddings if no clip data is available
             ranked_clips = (
                 Clip.objects.filter(
                     id=Subquery(latest_clip_subquery),
@@ -131,7 +128,7 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
                 .exclude(user_views__user=user)
                 .annotate(
                     feed_score=CosineDistance(
-                        "feed_item__feed__topic_embedding", avg_embedding
+                        "feed_item__feed__topic_embedding", avg_feed_embedding
                     ),
                     feed_popularity=F("feed_item__feed__popularity_percentile"),
                     combined_score=Case(
@@ -145,27 +142,36 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
                     ),
                 )
                 .order_by("-combined_score")[:9]
-            )[:9]
+            )
         else:
+            print("Using warm start")
+            # Get average embedding of clips the user has viewed or scored highly
+            avg_clip_embedding = Clip.objects.filter(
+                user_views__user=user, user_views__duration__gt=90
+            ).aggregate(Avg("transcript_embedding"))["transcript_embedding__avg"]
+
+            # Use both feed and clip embeddings for ranking
             ranked_clips = (
                 Clip.objects.filter(
                     id=Subquery(latest_clip_subquery),
                     feed_item__feed__is_english=True,
-                    user_scores__user=user,
                 )
                 .exclude(id__in=exclude_clip_ids)
                 .exclude(user_views__user=user)
                 .annotate(
-                    feed_popularity=F("feed_item__feed__popularity_percentile"),
                     feed_score=CosineDistance(
-                        "feed_item__feed__topic_embedding", avg_embedding
+                        "feed_item__feed__topic_embedding", avg_feed_embedding
                     ),
-                    clip_score=F("user_scores__score"),
+                    clip_score=CosineDistance(
+                        "transcript_embedding", avg_clip_embedding
+                    ),
+                    feed_popularity=F("feed_item__feed__popularity_percentile"),
                     combined_score=Case(
                         When(
                             feed_score__isnull=False,
-                            then=(1 - F("feed_score")) * 0.4
-                            + F("clip_score") * 0.4
+                            clip_score__isnull=False,
+                            then=(1 - F("feed_score")) * 0.2
+                            + (1 - F("clip_score")) * 0.6
                             + F("feed_popularity") * 0.2,
                         ),
                         default=Value(0),
@@ -175,17 +181,15 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
                 .order_by("-combined_score")[:9]
             )
 
-        # Get a random clip (unchanged)
+        # Get a random clip
         one_week_ago = timezone.now() - timedelta(days=7)
         random_clip = (
             Clip.objects.filter(
                 created_at__gte=one_week_ago,
-                user_scores__user=user,
                 feed_item__feed__is_english=True,
             )
             .exclude(user_views__user=user)
             .exclude(id__in=exclude_clip_ids)
-            .filter(user_scores__score__lt=0.5)
             .order_by("?")
             .first()
         )

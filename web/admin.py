@@ -11,11 +11,9 @@ from .models import (
     Feed,
     FeedItem,
     Clip,
-    ClipUserScore,
     ClipUserView,
     FeedTopic,
     FeedUserInterest,
-    FeedUserScore,
 )
 
 
@@ -252,6 +250,7 @@ class ClipAdmin(admin.ModelAdmin):
     )
     list_filter = ("feed_item", "created_at")
     search_fields = ("name", "body")
+    exclude = ("transcript_embedding",)  # some pg-vector bug breaks the admin
 
     def get_feed_item_name(self, obj):
         return obj.feed_item.name
@@ -271,17 +270,10 @@ class ClipAdmin(admin.ModelAdmin):
     get_audio_url.short_description = "Audio"
 
 
-@admin.register(ClipUserScore)
-class ClipUserScoreAdmin(admin.ModelAdmin):
-    list_display = ("clip", "user", "score", "created_at", "updated_at")
-    list_filter = ("score", "created_at")
-    search_fields = ("user__username", "clip__name")
-
-
 @admin.register(ClipUserView)
 class ClipUserViewAdmin(admin.ModelAdmin):
-    list_display = ("clip", "user", "duration", "processed", "created_at", "updated_at")
-    list_filter = ("created_at", "processed")
+    list_display = ("clip", "user", "duration", "created_at", "updated_at")
+    list_filter = ("created_at",)
     search_fields = ("user__username", "clip__name")
 
 
@@ -297,51 +289,6 @@ class FeedUserInterestAdmin(admin.ModelAdmin):
 
     get_feed_name.short_description = "Feed"
     get_feed_name.admin_order_field = "feed__name"
-
-
-class UsernameFilter(admin.SimpleListFilter):
-    title = "Username"
-    parameter_name = "username"
-
-    def lookups(self, request, model_admin):
-        usernames = set(
-            FeedUserScore.objects.values_list("user__username", flat=True).distinct()
-        )
-        return [(username, username) for username in usernames]
-
-    def queryset(self, request, queryset):
-        if self.value():
-            return queryset.filter(user__username=self.value())
-
-
-@admin.register(FeedUserScore)
-class FeedUserScoreAdmin(admin.ModelAdmin):
-    list_display = (
-        "get_username",
-        "get_feed_name",
-        "score",
-        "created_at",
-        "updated_at",
-    )
-    list_filter = (UsernameFilter, "created_at")
-    search_fields = ("user__username", "feed__name")
-    autocomplete_fields = ("user", "feed")
-
-    def get_queryset(self, request):
-        queryset = super().get_queryset(request)
-        return queryset.select_related("user", "feed")
-
-    def get_feed_name(self, obj):
-        return obj.feed.name
-
-    get_feed_name.admin_order_field = "feed__name"
-    get_feed_name.short_description = "Feed"
-
-    def get_username(self, obj):
-        return obj.user.username
-
-    get_username.admin_order_field = "user__username"
-    get_username.short_description = "User"
 
 
 def duration_string(duration):

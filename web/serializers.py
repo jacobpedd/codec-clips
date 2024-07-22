@@ -23,7 +23,6 @@ class FeedItemSerializer(TimestampedSerializer):
 
 class ClipSerializer(TimestampedSerializer):
     feed_item = FeedItemSerializer()
-    score = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Clip
@@ -36,7 +35,6 @@ class ClipSerializer(TimestampedSerializer):
             "end_time",
             "audio_bucket_key",
             "feed_item",
-            "score",
             "created_at",
             "updated_at",
         ]

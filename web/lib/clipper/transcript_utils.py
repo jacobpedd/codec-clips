@@ -2,7 +2,7 @@ import re
 from thefuzz import fuzz
 
 
-def format_transcript(transcript: dict):
+def format_transcript(transcript: list):
     formatted_transcript = ""
     for utterance in transcript:
         formatted_transcript += f"# Speaker {utterance['speaker']}\n"
@@ -10,8 +10,17 @@ def format_transcript(transcript: dict):
     return formatted_transcript
 
 
+def format_transcript_by_time(transcript: list, start_time: int, end_time: int):
+    clip_transcript = ""
+    for utterance in transcript:
+        if utterance["start"] > start_time and utterance["end"] < end_time:
+            clip_transcript += f"{utterance['speaker']}\n"
+            clip_transcript += f"{utterance['text']}\n"
+    return clip_transcript
+
+
 def format_transcript_view(
-    transcript: dict,
+    transcript: list,
     quote: str,
     clip: dict | None = None,
     start_context_length=500,
@@ -122,7 +131,7 @@ def format_transcript_view(
     return final_transcript
 
 
-def find_phrase(transcript: dict, phrase: str, start_from=0, end_at=None):
+def find_phrase(transcript: list, phrase: str, start_from=0, end_at=None):
     # We only care about timing, so we can just loop through all the words
     words = []
     for utterance in transcript:

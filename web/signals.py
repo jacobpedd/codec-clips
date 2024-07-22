@@ -1,8 +1,7 @@
-from django.db.models.signals import post_save, post_delete
+from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from web.lib.ranker import rank_feeds_for_user
-from .models import FeedItem, FeedUserInterest
+from .models import FeedItem
 from .tasks import generate_clips_from_feed_item
 
 
@@ -10,9 +9,3 @@ from .tasks import generate_clips_from_feed_item
 def trigger_clip_generation(sender, instance, created, **kwargs):
     if created:
         generate_clips_from_feed_item.delay(instance.id)
-
-
-@receiver(post_save, sender=FeedUserInterest)
-@receiver(post_delete, sender=FeedUserInterest)
-def trigger_feed_following(sender, instance, **kwargs):
-    rank_feeds_for_user(instance.user_id)
