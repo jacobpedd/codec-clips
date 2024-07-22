@@ -1,29 +1,19 @@
-import anthropic
-from codec import settings
-from .transcript_utils import find_phrase, format_transcript, format_transcript_view
-
-client = anthropic.Anthropic(
-    api_key=settings.ANTHROPIC_API_KEY,
-    base_url="https://anthropic.hconeai.com/",
-    default_headers={
-        "Helicone-Auth": f"Bearer {settings.HELICONE_API_KEY}",
-        "Helicone-Cache-Enabled": "true",
-        "Helicone-User-Id": "clipper",
-        "Helicone-Retry-Enabled": "true",
-    },
-)
+from braintrust import traced
+from web.lib.llm_client import llm_client
+from .transcript_utils import find_phrase, format_transcript_view
 
 
+@traced
 def critique_clip(transcript: dict, moment: dict, clip: dict | None) -> str | None:
-    if not settings.ANTHROPIC_API_KEY:
-        raise ValueError("ANTHROPIC_API_KEY is not set")
-
     tools = [
         {
-            "name": "approve_clip",
-            "description": "Approve the clip that the user submitted and allow it to be submitted to social media. This tool has no parameters or arguments.",
-            "input_schema": {"type": "object", "properties": {}},
-        },
+            "type": "function",
+            "function": {
+                "description": "Approve the clip that the user submitted and allow it to be submitted to social media. This tool has no parameters or arguments.",
+                "name": "approve_clip",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
     ]
 
     transcript_view = format_transcript_view(
@@ -36,7 +26,47 @@ def critique_clip(transcript: dict, moment: dict, clip: dict | None) -> str | No
     clip_seconds = int(clip_duration % 60)
     print(f"Clip duration: {clip_minutes}min {clip_seconds}s")
 
-    messages = []
+    messages = [
+        {
+            "role": "system",
+            "content": "\n".join(
+                [
+                    "# Role and Context",
+                    "You are an AI assistant helping podcast hosts edit viral clips form their podcast transcript. The clips are based on their podcast transcript and posted to their YouTube channel.",
+                    "",
+                    "# Task",
+                    "Evaluate the clip draft based on the clip criteria. Provide feedback to the user if needed.",
+                    "",
+                    "# Input",
+                    "The user will provide the clip's name, duration, and current transcript.",
+                    "The transcript will have the following sections denoted by <tags>:",
+                    "- <TRANSCRIPT START>: Denotes the start and end of the transcript. Your transcript will only contain this tag if it starts at the beginning of the podcast transcript.",
+                    "- <TRANSCRIPT STOP>: Denotes the end of the transcript. Your transcript will only contain this tag if it ends at the end of the podcast transcript.",
+                    "- <CONTEXT START>: Denotes the start of the context surrounding the clip. Your transcript will only contain this tag if it does not start at the beginning of the podcast transcript.",
+                    "- <CONTEXT END>: Denotes the end of the context surrounding the clip. Your transcript will only contain this tag if it does not end at the end of the podcast transcript.",
+                    "- <CLIP>: Opening and closing the tag denotes the start and end of the currently selected clip. If there is no clip selected, you need to use the submit_clip tool to submit the first clip.",
+                    "- <QUOTE>: Opening and closing the tag denotes the start and end of a quote in the transcript. The quote is the key moment in the clip that the user wants to center the clip around.",
+                    "",
+                    "# Clip Criteria",
+                    "- Be around 2-10 minutes in length",
+                    "- Have enough context to stand alone when played without any additional content",
+                    "- Exclude show intros, outros, and advertisements",
+                    "- Only include the nessasary context to capture the moment",
+                    "- Start clips with enough context to understand the discussion",
+                    "- End clips with a natural conclusion to the discussion",
+                    "- Do not start or end in the middle of a sentence",
+                    "Note: The clip is only what is between the CLIP tags. Users will not see the surrounding context. Remember to only give feedback related to the start or end of the clip.",
+                    "",
+                    "# Response",
+                    "If the clip meets the above criteria, use submit_clip to finalize it.",
+                    "If there are changes the editors can make to comply with the criteria, respond to the user with your feedback.",
+                    "Keep your feedback concise and to the point.",
+                    "Your feedback can be at most 3 sentences long.",
+                    "Editors can only change where the clip start and ends so only give feedback related to the start or end.",
+                ]
+            ),
+        }
+    ]
     for example in EXAMPLES:
         messages += [
             {
@@ -70,60 +100,25 @@ def critique_clip(transcript: dict, moment: dict, clip: dict | None) -> str | No
         },
     ]
 
-    response = client.messages.create(
+    response = llm_client.chat.completions.create(
         model="claude-3-5-sonnet-20240620",
         max_tokens=1000,
-        system="\n".join(
-            [
-                "# Role and Context",
-                "You are an AI assistant helping podcast hosts edit viral clips form their podcast transcript. The clips are based on their podcast transcript and posted to their YouTube channel.",
-                "",
-                "# Task",
-                "Evaluate the clip draft based on the clip criteria. Provide feedback to the user if needed.",
-                "",
-                "# Input",
-                "The user will provide the clip's name, duration, and current transcript.",
-                "The transcript will have the following sections denoted by <tags>:",
-                "- <TRANSCRIPT START>: Denotes the start and end of the transcript. Your transcript will only contain this tag if it starts at the beginning of the podcast transcript.",
-                "- <TRANSCRIPT STOP>: Denotes the end of the transcript. Your transcript will only contain this tag if it ends at the end of the podcast transcript.",
-                "- <CONTEXT START>: Denotes the start of the context surrounding the clip. Your transcript will only contain this tag if it does not start at the beginning of the podcast transcript.",
-                "- <CONTEXT END>: Denotes the end of the context surrounding the clip. Your transcript will only contain this tag if it does not end at the end of the podcast transcript.",
-                "- <CLIP>: Opening and closing the tag denotes the start and end of the currently selected clip. If there is no clip selected, you need to use the submit_clip tool to submit the first clip.",
-                "- <QUOTE>: Opening and closing the tag denotes the start and end of a quote in the transcript. The quote is the key moment in the clip that the user wants to center the clip around.",
-                "",
-                "# Clip Criteria",
-                "- Be around 2-10 minutes in length",
-                "- Have enough context to stand alone when played without any additional content",
-                "- Exclude show intros, outros, and advertisements",
-                "- Only include the nessasary context to capture the moment",
-                "- Start clips with enough context to understand the discussion",
-                "- End clips with a natural conclusion to the discussion",
-                "- Do not start or end in the middle of a sentence",
-                "Note: The clip is only what is between the CLIP tags. Users will not see the surrounding context. Remember to only give feedback related to the start or end of the clip.",
-                "",
-                "# Response",
-                "If the clip meets the above criteria, use submit_clip to finalize it.",
-                "If there are changes the editors can make to comply with the criteria, respond to the user with your feedback.",
-                "Keep your feedback concise and to the point.",
-                "Your feedback can be at most 3 sentences long.",
-                "Editors can only change where the clip start and ends so only give feedback related to the start or end.",
-            ]
-        ),
         tools=tools,
-        tool_choice={"type": "auto"},
+        tool_choice="auto",
         messages=messages,
     )
 
-    if response.stop_reason == "tool_use":
-        tool_use = next(block for block in response.content if block.type == "tool_use")
-        tool_name = tool_use.name
-        if tool_name == "approve_clip":
-            return None
-        else:
-            raise ValueError(f"Critique clip model called unknown tool: {tool_name}")
-    else:
-        text = response.content[0].text
+    response_message = response.choices[0].message
+    tool_calls = response_message.tool_calls
+    if tool_calls is None:
+        text = response_message.content
         return text
+    if len(tool_calls) > 1:
+        raise ValueError("More than one tool call found in response")
+
+    tool_call = tool_calls[0]
+    if tool_call.function.name == "approve_clip":
+        return None
 
 
 EXAMPLES = [

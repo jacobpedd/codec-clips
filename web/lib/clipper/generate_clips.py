@@ -1,4 +1,5 @@
 import json
+from braintrust import init_logger, traced
 
 from .suggest_moments import suggest_moments
 from .suggest_clip import suggest_clip
@@ -7,6 +8,10 @@ from .transcript_utils import find_phrase
 from .add_metadata import add_metadata
 
 
+logger = init_logger(project="Clipper")
+
+
+@traced
 def generate_clips(transcript, max_clips=5):
     moments = suggest_moments(transcript)
     moments = moments[:max_clips]

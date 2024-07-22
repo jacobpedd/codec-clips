@@ -94,7 +94,6 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = serializers.ClipSerializer
     permission_classes = [IsAuthenticated]
 
-    # TODO: Time decay
     def get_queryset(self):
         user = self.request.user
 
