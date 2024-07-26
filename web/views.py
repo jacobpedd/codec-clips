@@ -27,7 +27,6 @@ from django.db.models import (
     OuterRef,
     Avg,
     ExpressionWrapper,
-    DurationField,
 )
 from django.db.models.functions import Extract
 from django.shortcuts import render

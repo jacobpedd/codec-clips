@@ -12,7 +12,16 @@ from web.lib.crawler import (
     itunes_podcast_lookup,
 )
 from web.lib.embed import get_embedding
-from web.models import Feed, FeedItem, FeedTopic
+from django.contrib.auth.models import User
+from web.models import Feed, FeedItem, FeedTopic, FeedUserInterest
+from django.db.models import (
+    F,
+    Case,
+    When,
+    FloatField,
+    Avg,
+)
+from pgvector.django import CosineDistance
 from web.lib.r2 import handle_r2_audio_upload
 from web.lib.transcribe import transcribe
 from web.lib.parsing import get_duration
@@ -27,6 +36,13 @@ ITUNES_URLS = [
     "https://podcasts.apple.com/us/genre/podcasts-news/id1489",
     "https://podcasts.apple.com/us/genre/podcasts-sports/id1545",
     "https://podcasts.apple.com/us/genre/podcasts-technology/id1318",
+    "https://podcasts.apple.com/us/genre/podcasts-history/id1487",
+    "https://podcasts.apple.com/us/genre/podcasts-society-culture/id1324",
+    "https://podcasts.apple.com/us/genre/podcasts-tv-film/id1309",
+    "https://podcasts.apple.com/us/genre/podcasts-science/id1533",
+    "https://podcasts.apple.com/us/genre/podcasts-education/id1304",
+    "https://podcasts.apple.com/us/genre/podcasts-true-crime/id1488",
+    "https://podcasts.apple.com/us/genre/podcasts-arts/id1301",
 ]
 
 
@@ -115,12 +131,76 @@ def crawl_itunes_podcast(podcast_url):
 @shared_task
 def crawl_top_feeds() -> None:
     # Scheduled with beat to run every hour
-    feeds = Feed.objects.order_by("-total_itunes_ratings")[:250]
+    feeds = []
+
+    # Get the top 500 feeds by itunes ratings
+    top_feeds = (
+        Feed.objects.filter(is_english=True)
+        .order_by("-total_itunes_ratings")[:500]
+        .values_list("id", flat=True)
+    )
+
+    # Get the top 500 feeds recommended for each user
+    feed_scores = {}
+    total_scores = {}
+    count_scores = {}
+
+    # Use iterator() for memory efficiency
+    for user in User.objects.iterator():
+        # Get average embedding of feeds the user is interested in
+        avg_embedding = FeedUserInterest.objects.filter(
+            user=user, is_interested=True
+        ).aggregate(Avg("feed__topic_embedding"))["feed__topic_embedding__avg"]
+
+        if avg_embedding is None:
+            continue
+
+        # Get recommended feeds
+        user_feed_scores = (
+            Feed.objects.filter(is_english=True)
+            .exclude(id__in=top_feeds)  # Exclude feeds already in top feeds
+            .annotate(
+                similarity=CosineDistance("topic_embedding", avg_embedding),
+                score=Case(
+                    When(
+                        similarity__isnull=False,
+                        then=(1 - F("similarity")) * 0.8
+                        + F("popularity_percentile") * 0.2,
+                    ),
+                    default=F("popularity_percentile"),
+                    output_field=FloatField(),
+                ),
+            )
+            .order_by("-score")[:100]
+            .values("id", "score")
+        )
+
+        for feed in user_feed_scores:
+            feed_id, score = feed["id"], feed["score"]
+            if feed_id not in feed_scores:
+                feed_scores[feed_id] = [score]
+                total_scores[feed_id] = score
+                count_scores[feed_id] = 1
+            else:
+                feed_scores[feed_id].append(score)
+                total_scores[feed_id] += score
+                count_scores[feed_id] += 1
+
+    # Calculate average scores and sort
+    avg_scores = {
+        feed_id: total_scores[feed_id] / count_scores[feed_id]
+        for feed_id in feed_scores
+    }
+    sorted_feed_scores = sorted(avg_scores.items(), key=lambda x: x[1], reverse=True)
+
+    # Take the top 500 scored feeds for the user base
+    top_user_feeds = [feed_id for feed_id, _ in sorted_feed_scores[:500]]
+
+    # Combine top_feeds and top_user_feeds
+    feeds = list(set(top_feeds) | set(top_user_feeds))
 
     # Create a group of tasks for processing each feed
-    tasks = group(
-        crawl_feed.s(feed.id) for feed in feeds if feed.url.startswith("https://")
-    )
+    tasks = group(crawl_feed.s(feed_id) for feed_id in feeds)
 
     # Execute the group of tasks without waiting
     result = tasks.apply_async()
