@@ -1,6 +1,6 @@
 from celery import shared_task
 from celery.utils.log import get_task_logger
-from web.lib.clipper import generate_clips, generate_clips_audio
+from web.lib.clipper import clipper, generate_clips_audio
 from web.lib.clipper.transcript_utils import format_transcript_by_time
 from web.lib.embed import get_embedding
 from web.lib.r2 import get_audio_transcript
@@ -16,7 +16,7 @@ def generate_clips_from_feed_item(feed_item_id: int) -> None:
 
     # Generate clips with LLM
     transcript = get_audio_transcript(feed_item.transcript_bucket_key)
-    clips = generate_clips(transcript, max_clips=3)
+    clips, _, _ = clipper(transcript)
 
     # Create clip audio files
     clip_audio_bucket_keys = generate_clips_audio(feed_item.audio_bucket_key, clips)

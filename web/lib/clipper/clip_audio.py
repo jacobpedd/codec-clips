@@ -31,6 +31,7 @@ def generate_clips_audio(audio_bucket_key: str, clips: list[dict]):
     clip_bucket_keys = []
     try:
         for clip in clips:
+            clip_file_path = None
             try:
                 # Use ffmpeg to create the clip
                 clip_file_path = save_clip_audio("/tmp/", audio_file_path, clip)
@@ -41,12 +42,15 @@ def generate_clips_audio(audio_bucket_key: str, clips: list[dict]):
                 print(f"Uploaded clip to R2: {clip_key}")
 
                 clip_bucket_keys.append(clip_key)
+            except Exception as e:
+                raise e
             finally:
                 # Clean up the temporary clip file
-                if os.path.exists(clip_file_path):
+                if clip_file_path is not None and os.path.exists(clip_file_path):
                     os.remove(clip_file_path)
                     print(f"Cleaned up temporary clip file: {clip_file_path}")
-
+    except Exception as e:
+        raise e
     finally:
         # Clean up the temporary input audio file
         if os.path.exists(audio_file_path):

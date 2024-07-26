@@ -1,12 +1,14 @@
 import json
-from braintrust import traced
 from web.lib.llm_client import llm_client
-from .transcript_utils import format_transcript_view
+from .transcript_utils import format_clip_prompt
+from langsmith import traceable
 
 
-@traced
+@traceable
 def add_metadata(transcript, clip: dict) -> dict:
-    transcript_view = format_transcript_view(transcript, clip["quote"], clip, 0, 0)
+    clip_prompt, _ = format_clip_prompt(transcript, clip)
+    # Only include lines between <CLIP> and </CLIP>
+    clip_prompt = clip_prompt.split("<CLIP>")[1].split("</CLIP>")[0]
 
     tools = [
         {
@@ -32,55 +34,97 @@ def add_metadata(transcript, clip: dict) -> dict:
         }
     ]
 
-    response = llm_client.chat.completions.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=1000,
-        tools=tools,
-        tool_choice={"type": "tool", "name": "submit_metadata"},
-        messages=[
-            {
-                "role": "system",
-                "content": "\n".join(
-                    [
-                        "You are a helpful assistant who adds metadata to a clip.",
-                        "# TASK",
-                        "You are helping the user, the podcast host, by adding metadata to a clip from their podcast.",
-                        "The user will provide the transcript of the clip in their message.",
-                        "You will add metadata to the clip, with the following properties:",
-                        "- name: The name of the clip",
-                        "- summary: A short summary of the clip",
-                        "# NAME",
-                        "The name of the clip is based on the content of the transcript.",
-                        "It should be a concise and descriptive name that accurately reflects the content of the clip.",
-                        "The name should be no longer than 20 words.",
-                        "# SUMMARY",
-                        "Single paragraph (<500 words)",
-                        "Enumerate all major topics discussed.",
-                        "Colorfully describe the tone. Is it funny, informational, spicy?",
-                        "Do not include any context like 'in the clip' or 'the hosts talk about'.",
-                        "Keep as information dense as possible.",
-                        "Don't include any non-summary text",
-                        "# RESPONSE",
-                        "Use the submit_metadata tool to provide the name and summary for the clip.",
-                    ]
-                ),
-            },
-            {"role": "user", "content": transcript_view},
-        ],
-    )
+    messages = [
+        {
+            "role": "user",
+            "content": "\n".join(
+                [
+                    "You are an AI assistant tasked with adding metadata to a podcast clip. Your job is to analyze the transcript of the clip and generate appropriate metadata. Here are your instructions:",
+                    "",
+                    "First, carefully read and analyze the following transcript:",
+                    "",
+                    "<transcript>",
+                    f"{clip_prompt}",
+                    "</transcript>",
+                    "",
+                    "Based on this transcript, you need to generate two pieces of metadata:",
+                    "",
+                    "1. Name: A concise and descriptive name for the clip",
+                    "2. Summary: A short summary of the clip's content",
+                    "",
+                    "For the name:",
+                    "- Think of a hook that will draw users in on social media",
+                    "- Create a title that accurately reflects the main topic or theme of the clip",
+                    "- Keep it concise but descriptive",
+                    "- Limit it to no more than 20 words",
+                    "- Ensure it captures the essence of the conversation",
+                    "",
+                    "For the summary:",
+                    "- Write a single paragraph (less than 500 words)",
+                    "- Describe the topics of discussion in the clip",
+                    "- Describe the tone of the conversation (e.g., funny, informational, spicy)",
+                    '- Avoid generic phrases like "in the clip" or "the hosts talk about"',
+                    "- Keep the summary as information-dense as possible",
+                    "- Focus solely on summarizing the content, without any additional commentary",
+                    "",
+                    "Once you have crafted both the name and summary, use the submit_metadata tool to provide this information. The tool requires two parameters:",
+                    '1. "name": The clip name you created',
+                    '2. "summary": The summary you wrote',
+                    "",
+                    "To use the tool, format your response like this:",
+                    '<function_call>submit_metadata(name="Your clip name here", summary="Your summary here")</function_call>',
+                    "",
+                    "Remember to follow these instructions precisely. Do not include any additional text or explanations outside of the function call. Your entire response should consist solely of the function call with the name and summary you've created based on the transcript.",
+                ]
+            ),
+        }
+    ]
 
-    response_message = response.choices[0].message
-    tool_calls = response_message.tool_calls
-    if len(tool_calls) == 0:
-        raise ValueError("No tool calls found in response")
-    if len(tool_calls) > 1:
-        raise ValueError("More than one tool call found in response")
+    iters = 0
+    max_iters = 10
+    while iters < max_iters:
+        iters += 1
 
-    tool_call = tool_calls[0]
-    if tool_call.function.name == "submit_metadata":
-        arguments = json.loads(tool_call.function.arguments)
-        clip["name"] = arguments["name"]
-        clip["summary"] = arguments["summary"]
-        return clip
-    else:
-        raise ValueError(f"Unexpected tool call: {tool_call.function.name}")
+        response = llm_client.chat.completions.create(
+            model="claude-3-5-sonnet-20240620",
+            max_tokens=1000,
+            tools=tools,
+            tool_choice={"type": "function", "function": {"name": "submit_metadata"}},
+            messages=messages,
+        )
+
+        try:
+            response_message = response.choices[0].message
+            tool_calls = response_message.tool_calls
+            if len(tool_calls) == 0:
+                raise ValueError("No tool calls found in response")
+            if len(tool_calls) > 1:
+                raise ValueError("More than one tool call found in response")
+
+            tool_call = tool_calls[0]
+            if tool_call.function.name == "submit_metadata":
+                arguments = json.loads(tool_call.function.arguments)
+                name = arguments["name"]
+                summary = arguments["summary"]
+
+                if name.strip() == "":
+                    raise ValueError("Name cannot be empty")
+                if len(name.split()) > 20:
+                    raise ValueError("Name cannot be more than 20 words")
+
+                clip["name"] = name
+                clip["summary"] = summary
+                return clip
+            else:
+                raise ValueError(f"Unexpected tool call: {tool_call.function.name}")
+        except Exception as e:
+            print(str(e))
+            messages += [
+                response_message,
+                {
+                    "tool_call_id": tool_call.id,
+                    "role": "tool",
+                    "name": "submit_metadata",
+                    "content": str(e),
+                },
+            ]

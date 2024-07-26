@@ -1,3 +1,4 @@
+from urllib.parse import quote
 from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.admin import SimpleListFilter
@@ -210,11 +211,11 @@ class FeedItemAdmin(admin.ModelAdmin):
         return "N/A"
 
     def get_audio_url(self, obj):
-        url = f"{settings.R2_BUCKET_URL}/{obj.audio_bucket_key}"
+        url = f"{settings.R2_BUCKET_URL}/{quote(obj.audio_bucket_key)}"
         return format_html('<a href="{}" target="_blank">Bucket</a>', url)
 
     def get_transcript_url(self, obj):
-        url = f"{settings.R2_BUCKET_URL}/{obj.transcript_bucket_key}"
+        url = f"{settings.R2_BUCKET_URL}/{quote(obj.transcript_bucket_key)}"
         return format_html('<a href="{}" target="_blank">Bucket</a>', url)
 
     def get_clips_count(self, obj):
@@ -259,7 +260,7 @@ class ClipAdmin(admin.ModelAdmin):
         return duration_string((obj.end_time - obj.start_time) / 1000.0)
 
     def get_audio_url(self, obj):
-        url = f"{settings.R2_BUCKET_URL}/{obj.audio_bucket_key}"
+        url = f"{settings.R2_BUCKET_URL}/{quote(obj.audio_bucket_key)}"
         return format_html('<a href="{}" target="_blank">Bucket</a>', url)
 
     get_feed_item_name.admin_order_field = "feed_item__name"

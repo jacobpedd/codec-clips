@@ -1,173 +1,167 @@
-import re
-from thefuzz import fuzz
+def format_transcript_prompt(transcript: list):
+    format_transcript = ""
 
+    def format_time(ms):
+        total_seconds = int(ms / 1000)
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{seconds:02d}"
+        else:
+            return f"{minutes}:{seconds:02d}"
 
-def format_transcript(transcript: list):
-    formatted_transcript = ""
+    # List of common titles that should not end a sentence
+    common_titles = ["mr", "ms", "mrs", "dr", "prof", "rev", "hon", "sr", "jr"]
+
+    sentence_timings = {}
+    sentence_index = 0
     for utterance in transcript:
-        formatted_transcript += f"# Speaker {utterance['speaker']}\n"
-        formatted_transcript += f"{utterance['text']}\n\n"
-    return formatted_transcript
+        start_time = format_time(utterance["start"])
+        format_transcript += f"# {utterance['speaker']} {start_time}\n"
+        last_timestamp = None
+
+        # Process potential sentences to handle special cases
+        current_sentence = ""
+        word_count = 0
+        for i, word in enumerate(utterance["words"]):
+            # Initialize sentence timings if the word is at the start of a sentence
+            if sentence_index not in sentence_timings:
+                sentence_timings[sentence_index] = {"start": word["start"], "end": None}
+
+            if last_timestamp is None:
+                last_timestamp = word["start"]
+
+            word_text = word["text"].lower()
+            next_word = (
+                utterance["words"][i + 1]["text"].lower()
+                if i + 1 < len(utterance["words"])
+                else ""
+            )
+
+            # Check if the word ends with a period and is not a common title
+            is_sentence_end = word["text"].endswith((".", "?", "!")) and not (
+                word_text.rstrip(".") in common_titles and next_word
+            )
+
+            if is_sentence_end:
+                current_sentence += word["text"]
+                word_count += 1
+                # Only end the sentence if it has more than 2 words
+                if word_count > 2:
+                    format_transcript += f"{sentence_index} {current_sentence}\n"
+                    sentence_timings[sentence_index]["end"] = word["end"]
+                    current_sentence = ""
+                    word_count = 0
+                    sentence_index += 1
+
+                    if word["end"] - last_timestamp > 1000 * 60 * 5:
+                        # If the sentence is more than 5 min away from last timestamp. add new timestamp
+                        format_transcript += (
+                            f"# {utterance['speaker']} {format_time(word['end'])}\n"
+                        )
+                        last_timestamp = word["end"]
+                else:
+                    # If we added the word without ending the sentence, add a space
+                    current_sentence += " "
+
+            else:
+                if current_sentence == "":
+                    # If the word is at the beginning of a sentence, start a new sentence
+                    current_sentence += word["text"] + " "
+                else:
+                    # We're in the middle of a sentence
+                    current_sentence += word["text"] + " "
+                word_count += 1
+
+        # End sentence if there's any remaining text
+        if current_sentence != "":
+            format_transcript += f"{sentence_index} {current_sentence}\n"
+            sentence_timings[sentence_index]["end"] = utterance["end"]
+            sentence_index += 1
+
+    return format_transcript, sentence_timings
+
+
+def format_clip_prompt(transcript: list, clip: dict, max_mins=10):
+    transcript_prompt, sentence_timings = format_transcript_prompt(transcript)
+    # Find which sentence the clip starts and ends at
+    clip_start_sentence_index = 0
+    for i in range(len(sentence_timings.keys())):
+        sentence_timing = sentence_timings[i]
+        if sentence_timing["start"] >= clip["start"]:
+            clip_start_sentence_index = i
+            break
+    for i in range(len(sentence_timings.keys())):
+        sentence_timing = sentence_timings[i]
+        if sentence_timing["end"] >= clip["end"]:
+            clip_end_sentence_index = i
+            break
+
+    # Find which sentence the max duration starts and ends at
+    clip_duration_minutes = (clip["end"] - clip["start"]) / 60000.0
+    max_clip_extension_minutes = max_mins - clip_duration_minutes
+    max_clip_extension = max_clip_extension_minutes * 60 * 1000
+    if max_clip_extension > 0:
+        transcript_start_sentence_index = 0
+        for i in range(len(sentence_timings.keys())):
+            sentence_timing = sentence_timings[i]
+            if sentence_timing["start"] >= clip["start"] - max_clip_extension:
+                transcript_start_sentence_index = i
+                break
+        transcript_end_sentence_index = len(sentence_timings.keys()) - 1
+        for i in range(len(sentence_timings.keys())):
+            sentence_timing = sentence_timings[i]
+            if sentence_timing["end"] >= clip["end"] + max_clip_extension:
+                transcript_end_sentence_index = i
+                break
+    else:
+        transcript_start_sentence_index = clip_start_sentence_index
+        transcript_end_sentence_index = clip_end_sentence_index
+
+    clip_prompt = ""
+    in_transcript = False
+    for line in transcript_prompt.split("\n"):
+        if line.startswith("#"):
+            last_timestamp = line
+            if in_transcript:
+                clip_prompt += line + "\n"
+        else:
+            if line.startswith(f"{clip_start_sentence_index} "):
+                clip_prompt += "<CLIP>\n"
+
+            if line.startswith(f"{transcript_start_sentence_index} "):
+                in_transcript = True
+                clip_prompt += f"{last_timestamp}\n"
+            elif line.startswith(f"{transcript_end_sentence_index} "):
+                in_transcript = False
+
+            if in_transcript:
+                clip_prompt += line + "\n"
+
+            if line.startswith(f"{clip_end_sentence_index} "):
+                clip_prompt += "</CLIP>\n"
+    return clip_prompt, sentence_timings
 
 
 def format_transcript_by_time(transcript: list, start_time: int, end_time: int):
     clip_transcript = ""
+    current_speaker = None
+
     for utterance in transcript:
-        if utterance["start"] > start_time and utterance["end"] < end_time:
-            clip_transcript += f"{utterance['speaker']}\n"
-            clip_transcript += f"{utterance['text']}\n"
-    return clip_transcript
+        # Check if any part of the utterance overlaps with the clip time range
+        if utterance["start"] < end_time and utterance["end"] > start_time:
+            for word in utterance["words"]:
+                # Check if the word is fully or partially within the clip time range
+                if word["start"] < end_time and word["end"] > start_time:
+                    # Add speaker label if it's a new speaker
+                    if utterance["speaker"] != current_speaker:
+                        clip_transcript += f"\n# Speaker {utterance['speaker']}\n"
+                        current_speaker = utterance["speaker"]
 
+                    clip_transcript += f"{word['text']} "
 
-def format_transcript_view(
-    transcript: list,
-    quote: str,
-    clip: dict | None = None,
-    start_context_length=500,
-    end_context_length=500,
-) -> str:
-    # Add global word index to each word in the transcript
-    word_index = 0
-    for utterance in transcript:
-        for word in utterance["words"]:
-            word["word_index"] = word_index
-            word_index += 1
-    total_words = word_index  # Total number of words in the transcript
+        # Break the loop if we've passed the end time
+        elif utterance["start"] >= end_time:
+            break
 
-    def get_transcript_between_indices(start_index, end_index):
-        transcript_between_indices = ""
-        for utterance in transcript:
-            utterance_start_index = utterance["words"][0]["word_index"]
-            utterance_end_index = utterance["words"][-1]["word_index"]
-
-            if (
-                start_index <= utterance_end_index
-                and end_index >= utterance_start_index
-            ):
-                transcript_between_indices += f"# Speaker {utterance['speaker']}\n"
-                words_in_range = [
-                    word
-                    for word in utterance["words"]
-                    if start_index <= word["word_index"] <= end_index
-                ]
-                transcript_between_indices += " ".join(
-                    [word["text"] for word in words_in_range]
-                )
-                transcript_between_indices += "\n\n"
-        return transcript_between_indices
-
-    # Find the start and end indices of the quote
-    phrase = find_phrase(transcript, quote)
-    quote_start_index = phrase["start_word_index"]
-    quote_end_index = phrase["end_word_index"]
-    quote_transcript = get_transcript_between_indices(
-        quote_start_index, quote_end_index
-    )
-
-    # Find the start and end word indices of the clip
-    if clip is None:
-        content_start_index = quote_start_index
-        content_end_index = quote_end_index
-    else:
-        # Find the start and end indices of the clip
-        clip_start_phrase_start_index = find_phrase(transcript, clip["start_quote"])[
-            "start_word_index"
-        ]
-        content_start_index = clip_start_phrase_start_index
-        clip_end_index = find_phrase(transcript, clip["end_quote"])["end_word_index"]
-        content_end_index = clip_end_index
-
-    final_transcript = ""
-    # Add start context if needed
-    if start_context_length > 0:
-        # Add context to the start of the clip
-        context_start_index = max(0, content_start_index - start_context_length)
-        # Construct the transcript string with context
-        context_start_transcript = get_transcript_between_indices(
-            context_start_index, content_start_index - 1
-        )
-        if context_start_index == 0:
-            final_transcript += "<TRANSCRIPT START>\n"
-        else:
-            final_transcript += "<CONTEXT START>\n"
-        final_transcript += context_start_transcript
-
-    # Add the clip -> start of quote if there is a clip
-    if clip is not None:
-        final_transcript += "\n<CLIP>\n"
-        if content_start_index != quote_start_index:
-            clip_start_transcript = get_transcript_between_indices(
-                content_start_index, quote_start_index
-            )
-            final_transcript += clip_start_transcript
-
-    # Add the quote to the transcript
-    final_transcript += "\n<QUOTE>\n"
-    final_transcript += quote_transcript
-    final_transcript += "\n</QUOTE>\n"
-
-    # Add the end of quote -> end of clip if there is a clip
-    if clip is not None:
-        if content_end_index != quote_end_index:
-            clip_end_transcript = get_transcript_between_indices(
-                quote_end_index + 1, content_end_index
-            )
-            final_transcript += clip_end_transcript
-        final_transcript += "\n</CLIP>\n"
-
-    # Add end context if needed
-    if end_context_length > 0:
-        # Add context to the end of the clip
-        context_end_index = min(total_words - 1, content_end_index + end_context_length)
-        # Construct the transcript string with context
-        context_end_transcript = get_transcript_between_indices(
-            content_end_index + 1, context_end_index
-        )
-        final_transcript += context_end_transcript
-        if context_end_index == total_words - 1:
-            final_transcript += "<TRANSCRIPT STOP>\n"
-        else:
-            final_transcript += "<CONTEXT END>\n"
-    return final_transcript
-
-
-def find_phrase(transcript: list, phrase: str, start_from=0, end_at=None):
-    # We only care about timing, so we can just loop through all the words
-    words = []
-    for utterance in transcript:
-        words += utterance["words"]
-
-    if end_at is None:
-        end_at = len(words)
-
-    phrase_words = phrase.split()
-    best_match = (-1, 0)  # (index, score)
-
-    for i in range(start_from, end_at - len(phrase_words) + 1):
-        candidate = " ".join(
-            word["text"].lower() for word in words[i : i + len(phrase_words)]
-        )
-        candidate = re.sub(r"[^\w\s]", "", candidate)
-        score = fuzz.ratio(phrase, candidate)
-
-        if score > best_match[1]:
-            best_match = (i, score)
-
-    if best_match[1] > 80:  # NOTE: Threshold for matching, set based on vibes
-        best_match_index = best_match[0]
-        best_match_end_index = best_match_index + len(phrase_words) - 1
-        start_word = words[best_match_index]
-        end_word = words[best_match_end_index]
-        return {
-            "start_word_index": best_match_index,
-            "end_word_index": best_match_end_index,
-            "start": start_word["start"],
-            "end": end_word["end"],
-        }
-    else:
-        print(f"Error finding phrase, best score was {best_match[1]} out of {90}")
-        print(f"Original phrase: {phrase}")
-        print(
-            f"Best match:      {' '.join(word['text'] for word in words[best_match[0]:best_match[0]+len(phrase_words)]).lower()}"
-        )
-        raise ValueError("Error finding phrase")
+    return clip_transcript.strip()
