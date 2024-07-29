@@ -21,7 +21,7 @@ from django.db.models import (
     FloatField,
     Avg,
 )
-from pgvector.django import CosineDistance
+from pgvector.django import CosineDistance, L2Distance
 from web.lib.r2 import handle_r2_audio_upload
 from web.lib.transcribe import transcribe
 from web.lib.parsing import get_duration
@@ -156,22 +156,24 @@ def crawl_top_feeds() -> None:
             continue
 
         # Get recommended feeds
+        zero_vector = [0.0] * len(avg_embedding)
         user_feed_scores = (
             Feed.objects.filter(is_english=True)
             .exclude(id__in=top_feeds)  # Exclude feeds already in top feeds
             .annotate(
+                feed_zero_distance=L2Distance("topic_embedding", zero_vector),
                 similarity=CosineDistance("topic_embedding", avg_embedding),
                 score=Case(
                     When(
                         similarity__isnull=False,
-                        then=(1 - F("similarity")) * 0.8
-                        + F("popularity_percentile") * 0.2,
+                        then=(1 - F("similarity")) + F("popularity_percentile") * 0.25,
                     ),
                     default=F("popularity_percentile"),
                     output_field=FloatField(),
                 ),
             )
-            .order_by("-score")[:100]
+            .filter(feed_zero_distance__gt=0)
+            .order_by("-score")[:500]
             .values("id", "score")
         )
 
