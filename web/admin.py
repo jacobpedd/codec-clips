@@ -4,7 +4,12 @@ from django.contrib import admin, messages
 from django.contrib.admin import SimpleListFilter
 from django.utils.html import format_html
 from django.urls import reverse
-from django.db.models import Count, Exists, OuterRef
+from django.db.models import Count, BooleanField, Exists, OuterRef
+from django.db.models.functions import Cast
+from pgvector.django import L2Distance
+from web.tasks.crawler_tasks import recalculate_feed_embedding_and_topics
+
+
 from django.db import transaction
 
 from web.tasks import crawl_feed, generate_clips_from_feed_item
@@ -70,6 +75,24 @@ class IsEnglishFilter(SimpleListFilter):
             return queryset.filter(is_english=False)
 
 
+class HasZeroEmbeddingFilter(admin.SimpleListFilter):
+    title = "Has Zero Embedding"
+    parameter_name = "has_zero_embedding"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "Yes"),
+            ("no", "No"),
+        )
+
+    def queryset(self, request, queryset):
+        zero_vector = [0.0] * 768  # Assuming 768-dimensional embeddings
+        if self.value() == "yes":
+            return queryset.filter(topic_embedding=zero_vector)
+        if self.value() == "no":
+            return queryset.exclude(topic_embedding=zero_vector)
+
+
 @admin.register(Feed)
 class FeedAdmin(admin.ModelAdmin):
     list_display = (
@@ -79,18 +102,39 @@ class FeedAdmin(admin.ModelAdmin):
         "get_feed_items_count",
         "created_at",
         "updated_at",
+        "has_zero_embedding",
     )
-    list_filter = ("created_at", HasItemsFilter, FeedHasClipsFilter, IsEnglishFilter)
+    list_filter = (
+        "created_at",
+        HasItemsFilter,
+        FeedHasClipsFilter,
+        IsEnglishFilter,
+        HasZeroEmbeddingFilter,
+    )
     search_fields = ("name", "url")
-    actions = ["crawl_selected_feeds", "set_selected_feeds_is_english"]
-    exclude = ("topic_embedding",)  # some pg-vector bug breaks the admin
+    actions = [
+        "crawl_selected_feeds",
+        "set_selected_feeds_is_english",
+        "recalculate_selected_feed_embeddings_and_topics",
+    ]
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)
+        zero_vector = [0.0] * 768  # Assuming 768-dimensional embeddings
         queryset = queryset.annotate(
             _feed_items_count=Count("items", distinct=True),
+            _is_zero_embedding=Cast(
+                L2Distance("topic_embedding", zero_vector) == 0, BooleanField()
+            ),
         )
         return queryset
+
+    def has_zero_embedding(self, obj):
+        return obj._is_zero_embedding
+
+    has_zero_embedding.boolean = True
+    has_zero_embedding.short_description = "Zero Embedding"
+    has_zero_embedding.admin_order_field = "_is_zero_embedding"
 
     def get_url(self, obj):
         truncated_url = obj.url[:50] + "..." if len(obj.url) > 50 else obj.url
@@ -131,6 +175,14 @@ class FeedAdmin(admin.ModelAdmin):
             feed.save()
         self.message_user(
             request, f"set_is_english task initiated for {queryset.count()} feeds."
+        )
+
+    def recalculate_selected_feed_embeddings_and_topics(self, request, queryset):
+        for feed in queryset:
+            recalculate_feed_embedding_and_topics.delay(feed.id)
+        self.message_user(
+            request,
+            f"Recrawling topics and recalculating embeddings for {queryset.count()} feeds.",
         )
 
     crawl_selected_feeds.short_description = "crawl selected feeds"

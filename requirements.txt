@@ -17,7 +17,6 @@ click==8.1.7
 click-didyoumean==0.3.1
 click-plugins==1.1.1
 click-repl==0.3.0
-cohere==5.5.8
 coloredlogs==15.0.1
 defusedxml==0.7.1
 distro==1.9.0

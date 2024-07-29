@@ -14,7 +14,7 @@ console_command = '/code/manage.py shell'
 
 [processes]
   app = "python -m gunicorn --bind :8000 --timeout 180 codec.wsgi"
-  worker = "python -m celery -A codec worker -B --concurrency=1 -l info -O fair"
+  worker = "python -m celery -A codec worker -B --concurrency=12 -l info -O fair"
   flower = "python -m celery -A codec flower -l info"
 
 [env]
@@ -48,6 +48,12 @@ console_command = '/code/manage.py shell'
   memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
+
+[[vm]]
+  memory = '8gb'
+  cpu_kind = 'shared'
+  cpus = 4
+  processes = ['worker']
 
 [[statics]]
   guest_path = "/code/staticfiles"

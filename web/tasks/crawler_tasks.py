@@ -219,7 +219,7 @@ def crawl_top_feeds() -> None:
     max_retries=3,
     retry_backoff=30,
 )
-def crawl_feed(feed_id: int) -> None:
+def crawl_feed(feed_id: int, crawl_episodes: bool = True) -> None:
     """crawl and parse the RSS feeds."""
     feed = Feed.objects.prefetch_related("topics").get(id=feed_id)
     logging.info("[Started] Checking for new episodes from %s ....", feed.name)
@@ -237,7 +237,7 @@ def crawl_feed(feed_id: int) -> None:
         )
 
     # Check if feed language changed
-    if feed_data["language"] != feed.language:
+    if feed_data["language"] != feed.language and feed.is_english == False:
         feed.language = feed_data["language"]
         feed.is_english = "en" in feed.language.lower()
         feed.save()
@@ -268,6 +268,10 @@ def crawl_feed(feed_id: int) -> None:
 
             logging.info(f"Added {len(new_topics)} new topics to feed: {feed.name}")
 
+    if not crawl_episodes:
+        logging.info("[Finished] Crawling feed episodes disabled.")
+        return
+
     if entry_data["audio_url"] is None:
         logging.warning(f"Entry has no audio URL: {entry_data}")
         return
@@ -286,6 +290,48 @@ def crawl_feed(feed_id: int) -> None:
     # Trigger the crawl_feed_item task for the new feed item
     task_id = f"crawl_feed_item-{entry_data['audio_url']}"
     crawl_feed_item.apply_async(args=[feed.id, entry_data], task_id=task_id)
+
+
+@shared_task
+def recalculate_feed_embedding_and_topics(feed_id: int) -> None:
+    try:
+        feed = Feed.objects.get(id=feed_id)
+
+        # Recrawl the RSS feed to get updated topics
+        feed_data, _ = crawl_rss_feed(feed.url)
+
+        if "topics" in feed_data:
+            with transaction.atomic():
+                # Clear existing topics
+                FeedTopic.objects.filter(feed=feed).delete()
+
+                # Create new topics
+                new_topics = [
+                    FeedTopic(feed=feed, text=topic)
+                    for topic in set(feed_data["topics"])
+                ]
+                FeedTopic.objects.bulk_create(new_topics)
+
+                # Calculate new embedding
+                topic_text = " ".join(feed_data["topics"])
+                new_embedding = get_embedding(topic_text)
+
+                # Update feed with new embedding
+                feed.topic_embedding = new_embedding
+                feed.save()
+
+            logging.info(
+                f"Recrawled topics and recalculated embedding for feed: {feed.name}"
+            )
+        else:
+            logging.warning(f"No topics found for feed: {feed.name}")
+
+    except Feed.DoesNotExist:
+        logging.error(f"Feed with id {feed_id} does not exist")
+    except Exception as e:
+        logging.error(
+            f"Error recrawling topics and recalculating embedding for feed {feed_id}: {str(e)}"
+        )
 
 
 @shared_task(

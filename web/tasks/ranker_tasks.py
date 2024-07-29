@@ -1,14 +1,11 @@
 import numpy as np
 from celery import shared_task
-from cohere import Client
 from django.db import transaction
 from codec import settings
 from web.models import Feed
 from celery.utils.log import get_task_logger
 
 logging = get_task_logger(__name__)
-
-co = Client(settings.COHERE_API_KEY)
 
 
 @shared_task
