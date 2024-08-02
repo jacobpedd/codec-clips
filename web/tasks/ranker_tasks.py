@@ -1,32 +1,50 @@
-import numpy as np
-from celery import shared_task
 from django.db import transaction
-from codec import settings
+from django.db.models import F, Window, FloatField
+from django.db.models.functions import PercentRank
+from django.core.paginator import Paginator
+from celery import shared_task
 from web.models import Feed
-from celery.utils.log import get_task_logger
-
-logging = get_task_logger(__name__)
+import time
 
 
 @shared_task
 def rank_all_feeds_popularity() -> None:
-    # TODO: This should probably check to see if it needs to be recalculated
-    # Retrieve all total_itunes_ratings values and corresponding Feed instances
-    all_feeds = Feed.objects.all()
-    all_ratings = np.array([feed.total_itunes_ratings for feed in all_feeds])
+    start_time = time.time()
+    batch_size = 1000
 
-    # Calculate ranks
-    sorted_indices = np.argsort(all_ratings)
-    ranks = np.empty_like(sorted_indices)
-    ranks[sorted_indices] = np.arange(len(all_ratings))
+    # Get total number of feeds
+    total_feeds = Feed.objects.count()
+    print(f"Total feeds: {total_feeds}")
 
-    # Calculate percentile ranks
-    percentile_ranks = (ranks + 1) / len(all_ratings)
+    # Use Django's Paginator for efficient batching
+    paginator = Paginator(Feed.objects.all().order_by("id"), batch_size)
 
-    # Update each Feed instance with its percentile rank
-    with transaction.atomic():
-        for feed, percentile_rank in zip(all_feeds, percentile_ranks):
-            feed.popularity_percentile = percentile_rank
-            feed.save(update_fields=["popularity_percentile"])
+    for page_number in paginator.page_range:
+        with transaction.atomic():
+            # Get the current page of feeds
+            page = paginator.page(page_number)
 
+            # Calculate percentile ranks for the batch
+            feed_batch = Feed.objects.filter(id__in=page.object_list).annotate(
+                percentile_rank=Window(
+                    expression=PercentRank(),
+                    order_by=F("total_itunes_ratings").asc(),
+                    partition_by=F("id"),  # Ensure correct partitioning
+                    output_field=FloatField(),
+                )
+            )
+
+            # Prepare bulk update
+            feeds_to_update = [
+                Feed(id=feed.id, popularity_percentile=feed.percentile_rank)
+                for feed in feed_batch
+            ]
+
+            # Perform bulk update
+            Feed.objects.bulk_update(feeds_to_update, ["popularity_percentile"])
+
+        print(f"Processed feeds {page.start_index()} to {page.end_index()}")
+
+    end_time = time.time()
+    print(f"Total execution time: {end_time - start_time:.2f} seconds")
     print("Successfully updated percentile ranks for all Feed instances")

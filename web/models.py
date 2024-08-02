@@ -19,6 +19,13 @@ class Feed(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['total_itunes_ratings']),
+            models.Index(fields=['is_english']),
+            models.Index(fields=['popularity_percentile']),
+        ]
+
     def __str__(self):
         return self.name
 
@@ -34,6 +41,9 @@ class FeedItem(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
     feed = models.ForeignKey(Feed, on_delete=models.CASCADE, related_name="items")
+
+    class Meta:
+        indexes = [models.Index(fields=['posted_at'])]
 
     def __str__(self):
         return self.name
@@ -65,6 +75,9 @@ class Clip(models.Model):
         FeedItem, on_delete=models.CASCADE, related_name="clips"
     )
 
+    class Meta:
+        indexes = [models.Index(fields=['created_at'])]
+
     def __str__(self):
         return self.name
 
@@ -80,6 +93,7 @@ class ClipUserView(models.Model):
 
     class Meta:
         unique_together = ("clip", "user")
+        indexes = [models.Index(fields=['created_at'])]
 
     def __str__(self):
         return (

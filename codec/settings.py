@@ -173,9 +173,9 @@ CELERY_BEAT_SCHEDULE = {
         "task": "web.tasks.crawler_tasks.crawl_itunes",
         "schedule": crontab(minute=0, hour=10, day_of_week="tuesday"),  # Tues 3am PST
     },
-    "calculate-feed-popularity-every-10-minutes": {
+    "calculate-feed-popularity-every-hour": {
         "task": "web.tasks.ranker_tasks.rank_all_feeds_popularity",
-        "schedule": crontab(minute="*/10"),
+        "schedule": crontab(minute=0, hour="*/1"),
     },
 }
 CELERY_RESULT_EXTENDED = True
@@ -203,8 +203,8 @@ if not DEBUG:
     # Sentry
     sentry_sdk.init(
         dsn=SENTRY_DSN,
-        traces_sample_rate=1.0,
-        profiles_sample_rate=1.0,
+        traces_sample_rate=0.1,
+        profiles_sample_rate=0.1,
         environment="production",
         send_default_pii=True,
     )

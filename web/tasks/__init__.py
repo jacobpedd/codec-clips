@@ -1,6 +1,7 @@
 from celery import signals
 import sentry_sdk
 from sentry_sdk.integrations.celery import CeleryIntegration
+from codec import settings
 
 from web.tasks.crawler_tasks import *
 from web.tasks.clipper_tasks import *
