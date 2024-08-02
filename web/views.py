@@ -128,6 +128,11 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
             user=user, is_interested=True
         ).aggregate(Avg("feed__topic_embedding"))["feed__topic_embedding__avg"]
 
+        # Get blocked feeds
+        blocked_feeds = FeedUserInterest.objects.filter(
+            user=user, is_interested=False
+        ).values_list("feed_id", flat=True)
+
         if avg_feed_embedding is None:
             return Response(
                 {"detail": "Not enough data to make recommendations."},
@@ -159,6 +164,7 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
             .exclude(id__in=exclude_clip_ids)
             .exclude(user_views__user=user)
             .exclude(feed_item__feed__in=recent_feeds)
+            .exclude(feed_item__feed__id__in=blocked_feeds)
         )
 
         if ClipUserView.objects.filter(user=user).count() < 10:
@@ -179,19 +185,31 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
         else:
             print("Using warm start")
             # Get average embedding of clips the user has viewed or scored highly
-            avg_clip_embedding = Clip.objects.filter(
+            avg_positive_clip_embedding = Clip.objects.filter(
                 user_views__user=user, user_views__duration__gt=90
+            ).aggregate(Avg("transcript_embedding"))["transcript_embedding__avg"]
+
+            # Get negative average clip embedding (views < 30)
+            avg_negative_clip_embedding = Clip.objects.filter(
+                user_views__user=user, user_views__duration__lt=30
             ).aggregate(Avg("transcript_embedding"))["transcript_embedding__avg"]
 
             # Use both feed and clip embeddings for ranking
             ranked_clips = base_query.annotate(
-                clip_score=CosineDistance("transcript_embedding", avg_clip_embedding),
+                positive_clip_score=CosineDistance(
+                    "transcript_embedding", avg_positive_clip_embedding
+                ),
+                negative_clip_score=CosineDistance(
+                    "transcript_embedding", avg_negative_clip_embedding
+                ),
                 combined_score=Case(
                     When(
                         feed_score__isnull=False,
-                        clip_score__isnull=False,
+                        positive_clip_score__isnull=False,
+                        negative_clip_score__isnull=False,
                         then=(1 - F("feed_score"))
-                        + (1 - F("clip_score"))
+                        + (1 - F("positive_clip_score"))
+                        + F("negative_clip_score")
                         + F("feed_popularity") * 0.25
                         + F("recency_score") * 0.5,
                     ),
@@ -306,6 +324,31 @@ class FeedUserInterestViewSet(viewsets.ModelViewSet):
         return FeedUserInterest.objects.filter(user=self.request.user).order_by(
             "created_at"
         )
+
+    def create(self, request, *args, **kwargs):
+        feed_id = request.data.get("feed_id")
+        is_interested = request.data.get("is_interested", True)
+
+        # Try to get an existing instance
+        instance = FeedUserInterest.objects.filter(
+            user=request.user, feed_id=feed_id
+        ).first()
+
+        if instance:
+            # Update existing instance
+            instance.is_interested = is_interested
+            instance.save()
+            serializer = self.get_serializer(instance)
+            return Response(serializer.data)
+        else:
+            # Create new instance
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(
+                serializer.data, status=status.HTTP_201_CREATED, headers=headers
+            )
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
