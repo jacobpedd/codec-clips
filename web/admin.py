@@ -2,6 +2,7 @@ from urllib.parse import quote
 from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.admin import SimpleListFilter
+from django.contrib.auth import get_user_model
 from django.utils.html import format_html
 from django.urls import reverse
 from django.db.models import Count, BooleanField, Exists, OuterRef
@@ -324,17 +325,37 @@ class ClipAdmin(admin.ModelAdmin):
     get_audio_url.short_description = "Audio"
 
 
+class UserFilter(admin.SimpleListFilter):
+    title = "User"
+    parameter_name = "user"
+
+    def lookups(self, request, model_admin):
+        users = (
+            get_user_model()
+            .objects.filter(
+                id__in=model_admin.get_queryset(request).values_list("user", flat=True)
+            )
+            .order_by("username")
+        )
+        return [(user.id, user.username) for user in users]
+
+    def queryset(self, request, queryset):
+        if self.value():
+            return queryset.filter(user__id=self.value())
+        return queryset
+
+
 @admin.register(ClipUserView)
 class ClipUserViewAdmin(admin.ModelAdmin):
     list_display = ("clip", "user", "duration", "created_at", "updated_at")
-    list_filter = ("created_at",)
+    list_filter = ("created_at", UserFilter)
     search_fields = ("user__username", "clip__name")
 
 
 @admin.register(FeedUserInterest)
 class FeedUserInterestAdmin(admin.ModelAdmin):
     list_display = ("user", "get_feed_name", "is_interested", "created_at")
-    list_filter = ("created_at",)
+    list_filter = ("created_at", UserFilter)
     search_fields = ("user__username", "feed__name")
     autocomplete_fields = ("user", "feed")
 
