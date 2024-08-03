@@ -1,7 +1,7 @@
-from django.db import models
+from django.db import models, connection
 from django.utils import timezone
 from django.contrib.auth.models import User
-from pgvector.django import VectorField
+from pgvector.django import VectorField, HnswIndex
 
 def default_vector():
     # 768 is from nomic-embed-text-v1.5-Q in embed.py
@@ -24,11 +24,18 @@ class Feed(models.Model):
             models.Index(fields=['total_itunes_ratings']),
             models.Index(fields=['is_english']),
             models.Index(fields=['popularity_percentile']),
+            models.Index(fields=['is_english', 'popularity_percentile']),
+            HnswIndex(
+                name='feed_topic_embedding_idx',
+                fields=['topic_embedding'],
+                m=16,
+                ef_construction=64,
+                opclasses=['vector_cosine_ops']
+            ),
         ]
 
     def __str__(self):
         return self.name
-
 
 class FeedItem(models.Model):
     name = models.CharField(max_length=255)
@@ -43,11 +50,15 @@ class FeedItem(models.Model):
     feed = models.ForeignKey(Feed, on_delete=models.CASCADE, related_name="items")
 
     class Meta:
-        indexes = [models.Index(fields=['posted_at'])]
+        indexes = [
+            models.Index(fields=['posted_at']),
+            models.Index(fields=['feed']),
+            models.Index(fields=['feed', 'posted_at']),
+        ]
 
     def __str__(self):
         return self.name
-    
+
 class FeedTopic(models.Model):
     text = models.CharField(max_length=1000)
     created_at = models.DateTimeField(default=timezone.now)
@@ -56,10 +67,12 @@ class FeedTopic(models.Model):
 
     class Meta:
         unique_together = ("feed", "text")
+        indexes = [
+            models.Index(fields=['feed', 'text']),
+        ]
 
     def __str__(self):
         return self.text
-
 
 class Clip(models.Model):
     name = models.CharField(max_length=2000)
@@ -76,11 +89,22 @@ class Clip(models.Model):
     )
 
     class Meta:
-        indexes = [models.Index(fields=['created_at'])]
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['feed_item']),
+            models.Index(fields=['feed_item', 'created_at']),
+            models.Index(fields=['feed_item', 'created_at', 'name', 'summary']),
+            HnswIndex(
+                name='clip_transcript_embedding_idx',
+                fields=['transcript_embedding'],
+                m=16,
+                ef_construction=64,
+                opclasses=['vector_cosine_ops']
+            ),
+        ]
 
     def __str__(self):
         return self.name
-
 
 class ClipUserView(models.Model):
     duration = models.IntegerField()
@@ -93,7 +117,12 @@ class ClipUserView(models.Model):
 
     class Meta:
         unique_together = ("clip", "user")
-        indexes = [models.Index(fields=['created_at'])]
+        indexes = [
+            models.Index(fields=['clip']),
+            models.Index(fields=['user']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['user', 'clip', 'created_at']),
+        ]
 
     def __str__(self):
         return (
@@ -114,6 +143,10 @@ class FeedUserInterest(models.Model):
 
     class Meta:
         unique_together = ("user", "feed")
+        indexes = [
+            models.Index(fields=['user', 'feed', 'is_interested']),
+            models.Index(fields=['feed', 'is_interested']),
+        ]
 
     def __str__(self):
         return f"{self.user.username} {"follows" if self.is_interested else "blocks"} {self.feed.name}"

@@ -27,8 +27,10 @@ from django.db.models import (
     OuterRef,
     Avg,
     ExpressionWrapper,
+    Window,
+    F,
 )
-from django.db.models.functions import Extract
+from django.db.models.functions import Extract, RowNumber
 from django.shortcuts import render
 from django.views import View
 from django.http import JsonResponse
@@ -38,7 +40,7 @@ from django.views.decorators.csrf import ensure_csrf_cookie
 from django.utils.decorators import method_decorator
 from django.conf import settings
 from django.urls import reverse
-from pgvector.django import CosineDistance, L2Distance
+from pgvector.django import CosineDistance
 from django.contrib.postgres.aggregates import ArrayAgg
 from web import serializers
 from web.models import (
@@ -58,14 +60,12 @@ class RecommendedFeedsViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        # Get average embedding of feeds the user is interested in
-        avg_embedding = FeedUserInterest.objects.filter(
-            user=user, is_interested=True
-        ).aggregate(Avg("feed__topic_embedding"))["feed__topic_embedding__avg"]
-
-        zero_vector = [0.0] * len(avg_embedding)
-
-        if avg_embedding is None:
+        # Get average embedding of feeds the user is interested in from the materialized view
+        try:
+            avg_feed_embedding = UserFeedEmbeddingView.objects.get(
+                user_id=user.id
+            ).avg_feed_embedding
+        except UserFeedEmbeddingView.DoesNotExist:
             return Response(
                 {"detail": "Not enough data to make recommendations."},
                 status=status.HTTP_404_NOT_FOUND,
@@ -75,10 +75,9 @@ class RecommendedFeedsViewSet(viewsets.ReadOnlyModelViewSet):
         recommended_feeds = (
             Feed.objects.filter(is_english=True)
             .exclude(user_follows__user=user)  # Exclude feeds the user already follows
-            .annotate(zero_distance=L2Distance("topic_embedding", zero_vector))
-            .filter(zero_distance__gt=0)
+            .exclude(topic_embedding=[0] * 768)
             .annotate(
-                similarity=CosineDistance("topic_embedding", avg_embedding),
+                similarity=CosineDistance("topic_embedding", avg_feed_embedding),
                 score=Case(
                     When(
                         similarity__isnull=False,
@@ -139,28 +138,25 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        zero_vector = [0.0] * len(avg_feed_embedding)
-
         # Calculate the time decay factor
         current_time = timezone.now()
 
-        # Base query with zero vector filter
         base_query = (
             Clip.objects.filter(feed_item__feed__is_english=True)
+            .select_related("feed_item__feed")
+            .prefetch_related("user_views")
             .annotate(
-                feed_zero_distance=L2Distance(
-                    "feed_item__feed__topic_embedding", zero_vector
-                ),
                 feed_score=CosineDistance(
                     "feed_item__feed__topic_embedding", avg_feed_embedding
                 ),
                 feed_popularity=F("feed_item__feed__popularity_percentile"),
-                days_old=Extract(current_time - F("feed_item__posted_at"), "day"),
+                days_old=Extract(current_time - F("created_at"), "day"),
                 recency_score=ExpressionWrapper(
                     1 / (1 + F("days_old") / 7), output_field=FloatField()
                 ),
             )
-            .filter(feed_zero_distance__gt=0)
+            .exclude(transcript_embedding=[0] * 768)
+            .exclude(feed_item__feed__topic_embedding=[0] * 768)
             .exclude(id__in=exclude_clip_ids)
             .exclude(user_views__user=user)
             .exclude(feed_item__feed__in=recent_feeds)
@@ -218,14 +214,18 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
                 ),
             )
 
-        # Subquery to get the highest scoring clip for each feed
-        top_clip_per_feed = ranked_clips.filter(
-            feed_item__feed=OuterRef("feed_item__feed")
-        ).order_by("-combined_score")
-
-        final_clips = ranked_clips.filter(
-            id=Subquery(top_clip_per_feed.values("id")[:1])
-        ).order_by("-combined_score")[:9]
+        # Use window function to get the top clip per feed
+        final_clips = (
+            ranked_clips.annotate(
+                row_number=Window(
+                    expression=RowNumber(),
+                    partition_by=F("feed_item__feed"),
+                    order_by=F("combined_score").desc(),
+                )
+            )
+            .filter(row_number=1)
+            .order_by("-combined_score")[:9]
+        )
 
         # Get a random clip
         one_week_ago = timezone.now() - timedelta(days=7)
