@@ -197,3 +197,49 @@ def get_audio_transcript(transcript_bucket_key: str):
     except Exception as e:
         print(f"Unexpected error in get_audio_transcript: {str(e)}")
         raise
+
+
+def has_artwork(artwork_url: str) -> bool:
+    url_hash = hashlib.md5(artwork_url.encode()).hexdigest()
+    artwork_bucket_key = f"artwork-{url_hash}"
+
+    try:
+        # Check if the artwork file already exists in the R2 bucket
+        r2.head_object(Bucket=bucket_name, Key=artwork_bucket_key)
+        print(f"Artwork already exists in R2: {artwork_bucket_key}")
+        return artwork_bucket_key
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "404":
+            return None
+        else:
+            raise
+
+
+def save_artwork(artwork_url: str):
+    url_hash = hashlib.md5(artwork_url.encode()).hexdigest()
+    artwork_bucket_key = f"artwork-{url_hash}"
+
+    try:
+        # Check if the artwork file already exists in the R2 bucket
+        r2.head_object(Bucket=bucket_name, Key=artwork_bucket_key)
+        print(f"Artwork already exists in R2: {artwork_bucket_key}")
+    except ClientError as e:
+        if e.response["Error"]["Code"] == "404":
+            # Artwork doesn't exist, so we upload it
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+            with requests.get(
+                artwork_url, stream=True, headers=headers, timeout=10
+            ) as r:
+                r.raise_for_status()
+                r2.upload_fileobj(
+                    Fileobj=r.raw,
+                    Bucket=bucket_name,
+                    Key=artwork_bucket_key,
+                )
+            print(f"Uploaded artwork to R2: {artwork_bucket_key}")
+        else:
+            raise
+
+    return artwork_bucket_key

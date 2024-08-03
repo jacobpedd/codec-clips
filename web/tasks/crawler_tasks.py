@@ -22,7 +22,7 @@ from django.db.models import (
     Avg,
 )
 from pgvector.django import CosineDistance, L2Distance
-from web.lib.r2 import handle_r2_audio_upload
+from web.lib.r2 import handle_r2_audio_upload, has_artwork, save_artwork
 from web.lib.transcribe import transcribe
 from web.lib.parsing import get_duration
 
@@ -217,7 +217,7 @@ def crawl_top_feeds() -> None:
 
 
 @shared_task(
-    autoretry_for=(IndexError, KeyError, AttributeError),
+    autoretry_for=(IndexError, KeyError, AttributeError, requests.HTTPError),
     max_retries=3,
     retry_backoff=30,
 )
@@ -269,6 +269,16 @@ def crawl_feed(feed_id: int, crawl_episodes: bool = True) -> None:
                     feed.save()
 
             logging.info(f"Added {len(new_topics)} new topics to feed: {feed.name}")
+
+    # Check if artwork changed
+    artwork_bucket_key = has_artwork(feed_data["artwork_url"])
+    if artwork_bucket_key is None or feed.artwork_bucket_key != artwork_bucket_key:
+        if artwork_bucket_key is None:
+            print("Downloading artwork")
+            artwork_bucket_key = save_artwork(feed_data["artwork_url"])
+        feed.artwork_bucket_key = artwork_bucket_key
+        feed.save()
+        print("Saved artwork to database")
 
     if not crawl_episodes:
         logging.info("[Finished] Crawling feed episodes disabled.")

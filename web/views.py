@@ -60,16 +60,10 @@ class RecommendedFeedsViewSet(viewsets.ReadOnlyModelViewSet):
     def get_queryset(self):
         user = self.request.user
 
-        # Get average embedding of feeds the user is interested in from the materialized view
-        try:
-            avg_feed_embedding = UserFeedEmbeddingView.objects.get(
-                user_id=user.id
-            ).avg_feed_embedding
-        except UserFeedEmbeddingView.DoesNotExist:
-            return Response(
-                {"detail": "Not enough data to make recommendations."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        # Get average embedding of feeds the user is interested in
+        avg_feed_embedding = FeedUserInterest.objects.filter(
+            user=user, is_interested=True
+        ).aggregate(Avg("feed__topic_embedding"))["feed__topic_embedding__avg"]
 
         # Get recommended feeds
         recommended_feeds = (

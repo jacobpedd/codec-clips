@@ -10,7 +10,15 @@ class TimestampedSerializer(serializers.ModelSerializer):
 class FeedSerializer(TimestampedSerializer):
     class Meta:
         model = Feed
-        fields = ["id", "name", "description", "url", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "name",
+            "description",
+            "url",
+            "artwork_bucket_key",
+            "created_at",
+            "updated_at",
+        ]
 
 
 class FeedItemSerializer(TimestampedSerializer):

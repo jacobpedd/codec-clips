@@ -117,6 +117,7 @@ class FeedAdmin(admin.ModelAdmin):
         "set_selected_feeds_is_english",
         "recalculate_selected_feed_embeddings_and_topics",
     ]
+    exclude = ("topic_embedding",)  # some pg-vector bug breaks the admin
 
     def get_queryset(self, request):
         queryset = super().get_queryset(request)

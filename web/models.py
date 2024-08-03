@@ -14,6 +14,7 @@ class Feed(models.Model):
     total_itunes_ratings = models.IntegerField(default=0)
     popularity_percentile = models.FloatField(default=0.0)
     topic_embedding = VectorField(dimensions=768, default=default_vector)
+    artwork_bucket_key = models.CharField(max_length=2000)
     language = models.CharField(max_length=100)
     is_english = models.BooleanField(default=False)
     created_at = models.DateTimeField(default=timezone.now)

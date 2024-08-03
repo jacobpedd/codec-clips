@@ -77,6 +77,7 @@ def crawl_rss_feed(rss_feed_url: str) -> list:
         "description": rss_feed.feed.description,
         "topics": topics,
         "language": rss_feed.feed.language,
+        "artwork_url": rss_feed.feed.image.url,
     }
 
     # Get the first entry
