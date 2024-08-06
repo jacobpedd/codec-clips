@@ -43,6 +43,7 @@ ITUNES_URLS = [
     "https://podcasts.apple.com/us/genre/podcasts-education/id1304",
     "https://podcasts.apple.com/us/genre/podcasts-true-crime/id1488",
     "https://podcasts.apple.com/us/genre/podcasts-arts/id1301",
+    "https://podcasts.apple.com/us/genre/podcasts-health-fitness/id1512",
 ]
 
 
