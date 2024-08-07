@@ -126,6 +126,13 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
             user=user, is_interested=False
         ).values_list("feed_id", flat=True)
 
+        # Get feed items with incomplete clips
+        incomplete_feed_items = (
+            ClipUserView.objects.filter(user=user, duration__lt=90)
+            .values_list("clip__feed_item", flat=True)
+            .distinct()
+        )
+
         if avg_feed_embedding is None:
             return Response(
                 {"detail": "Not enough data to make recommendations."},
@@ -155,6 +162,7 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
             .exclude(user_views__user=user)
             .exclude(feed_item__feed__in=recent_feeds)
             .exclude(feed_item__feed__id__in=blocked_feeds)
+            .exclude(feed_item__id__in=incomplete_feed_items)
         )
 
         if ClipUserView.objects.filter(user=user).count() < 10:

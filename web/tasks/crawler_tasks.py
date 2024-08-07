@@ -122,9 +122,8 @@ def crawl_itunes_podcast(podcast_url):
             logging.info(f"Feed already exists: {feed_name}")
 
     except requests.RequestException as e:
-        logging.error(
-            f"Failed to fetch podcast page or lookup iTunes ID {podcast_id}: {str(e)}"
-        )
+        # Raise the exception to retry the task
+        raise e
     except Exception as e:
         logging.error(f"Error processing podcast {podcast_url}: {str(e)}")
 
