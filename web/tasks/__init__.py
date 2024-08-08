@@ -6,6 +6,7 @@ from codec import settings
 from web.tasks.crawler_tasks import *
 from web.tasks.clipper_tasks import *
 from web.tasks.ranker_tasks import *
+from web.tasks.logsnag_tasks import *
 
 
 @signals.beat_init.connect

@@ -177,6 +177,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "web.tasks.ranker_tasks.rank_all_feeds_popularity",
         "schedule": crontab(minute=0, hour="*/1"),
     },
+    "update-active-users-daily": {
+        "task": "web.tasks.update_active_users",
+        "schedule": crontab(hour=0, minute=0),
+    },
 }
 CELERY_RESULT_EXTENDED = True
 
@@ -198,6 +202,7 @@ BRAINTRUST_API_KEY = env("BRAINTRUST_API_KEY")
 OPENAI_API_KEY = env("OPENAI_API_KEY")
 LANGSMITH_API_KEY = env("LANGSMITH_API_KEY")
 LANGCHAIN_TRACING_V2 = True
+LOGSNAG_API_KEY = env("LOGSNAG_API_KEY")
 
 if not DEBUG:
     # Sentry
