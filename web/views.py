@@ -29,6 +29,7 @@ from django.db.models import (
     ExpressionWrapper,
     Window,
     F,
+    Exists,
 )
 from django.db.models.functions import Extract, RowNumber
 from django.shortcuts import render
@@ -133,6 +134,16 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
             .distinct()
         )
 
+        # Find clips that are in exclude_clip_ids but not viewed
+        unviewed_excluded_clips = Clip.objects.filter(id__in=exclude_clip_ids).exclude(
+            Exists(ClipUserView.objects.filter(user=user, clip=OuterRef("pk")))
+        )
+
+        # Exclude feeds that are have clips in exclude_clip_ids but not viewed because they were likely viewed and not completed
+        excluded_clip_feeds = unviewed_excluded_clips.values_list(
+            "feed_item__feed", flat=True
+        ).distinct()
+
         if avg_feed_embedding is None:
             return Response(
                 {"detail": "Not enough data to make recommendations."},
@@ -163,6 +174,7 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
             .exclude(feed_item__feed__in=recent_feeds)
             .exclude(feed_item__feed__id__in=blocked_feeds)
             .exclude(feed_item__id__in=incomplete_feed_items)
+            .exclude(feed_item__id__in=excluded_clip_feeds)
         )
 
         if ClipUserView.objects.filter(user=user).count() < 10:
@@ -230,6 +242,7 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
         # Get a random clip
+        # TODO: Exclude clips from any viewed feedItem? Or viewed feeds?
         one_week_ago = timezone.now() - timedelta(days=7)
         random_clip = (
             Clip.objects.filter(
