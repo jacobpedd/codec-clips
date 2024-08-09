@@ -91,7 +91,7 @@ if DEBUG:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql_psycopg2",
-            "NAME": "codec-prod-copy",
+            "NAME": "codec",
             "USER": "codec",
             "PASSWORD": "codec",
             "HOST": "",
