@@ -28,7 +28,7 @@ PG DUMP
 # Proxy to local
 
 ```
-fly proxy 5433 -a codec-vector-d
+fly proxy 5433 -a codec-vector-db
 ```
 
 # Dump PG DB
@@ -43,6 +43,9 @@ pg_dump "postgres://codec:bxoACwq4RLoELPA@localhost:5433/codec" -F c -b -v --no-
 
 ```
 psql
+```
+
+```
 createdb codec
 createuser codec
 psql -c "ALTER USER codec WITH PASSWORD 'codec';"
