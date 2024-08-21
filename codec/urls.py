@@ -10,6 +10,12 @@ router.register(r"feed", views.FeedViewSet, basename="feed")
 router.register(r"view", views.ViewViewSet, basename="view")
 router.register(r"history", views.HistoryViewSet, basename="history")
 router.register(r"following", views.FeedUserInterestViewSet, basename="following")
+router.register(r"categories", views.CategoryViewSet, basename="categories")
+router.register(
+    r"user_category_scores",
+    views.UserCategoryScoreViewSet,
+    basename="user_category_scores",
+)
 
 urlpatterns = [
     # put api routes at the root

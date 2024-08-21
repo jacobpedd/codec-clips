@@ -21,6 +21,9 @@ from .models import (
     ClipUserView,
     FeedTopic,
     FeedUserInterest,
+    Category,
+    ClipCategoryScore,
+    UserCategoryScore,
 )
 
 
@@ -301,9 +304,10 @@ class ClipAdmin(admin.ModelAdmin):
         "get_feed_item_name",
         "get_duration",
         "get_audio_url",
+        "get_category_scores_count",
         "created_at",
     )
-    list_filter = ("feed_item", "created_at")
+    list_filter = ("created_at",)
     search_fields = ("name", "body")
     exclude = ("transcript_embedding",)  # some pg-vector bug breaks the admin
 
@@ -316,6 +320,15 @@ class ClipAdmin(admin.ModelAdmin):
     def get_audio_url(self, obj):
         url = f"{settings.R2_BUCKET_URL}/{quote(obj.audio_bucket_key)}"
         return format_html('<a href="{}" target="_blank">Bucket</a>', url)
+
+    @admin.display(description="Category Scores Count")
+    def get_category_scores_count(self, obj):
+        count = obj.clipcategoryscore_set.count()
+        url = (
+            reverse("admin:web_clipcategoryscore_changelist")
+            + f"?clip__id__exact={obj.id}"
+        )
+        return format_html('<a href="{}">{}</a>', url, count)
 
     get_feed_item_name.admin_order_field = "feed_item__name"
     get_feed_item_name.short_description = "Feed Item Name"
@@ -387,3 +400,43 @@ class FeedTopicAdmin(admin.ModelAdmin):
 
     get_feed_name.admin_order_field = "feed__name"
     get_feed_name.short_description = "Feed"
+
+
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = (
+        "display_name",
+        "should_display",
+        "name",
+        "parent_link",
+        "user_friendly_name",
+    )
+    search_fields = (
+        "name",
+        "user_friendly_name",
+        "user_friendly_parent_name",
+        "parent__name",
+    )
+    list_filter = ("should_display",)
+
+    def parent_link(self, obj):
+        if obj.parent:
+            url = reverse("admin:web_category_change", args=[obj.parent.id])
+            return format_html('<a href="{}">{}</a>', url, obj.parent.name)
+        return "-"
+
+    parent_link.short_description = "Parent"
+
+
+@admin.register(ClipCategoryScore)
+class ClipCategoryScoreAdmin(admin.ModelAdmin):
+    list_display = ("clip", "category", "score", "created_at")
+    list_filter = ("created_at",)
+    search_fields = ("clip__name", "category__name")
+
+
+@admin.register(UserCategoryScore)
+class UserCategoryScoreAdmin(admin.ModelAdmin):
+    list_display = ("user", "category", "score", "created_at")
+    list_filter = ("created_at",)
+    search_fields = ("user__username", "category__name")

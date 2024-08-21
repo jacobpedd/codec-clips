@@ -1,5 +1,14 @@
 from rest_framework import serializers
-from web.models import Clip, ClipUserView, FeedItem, Feed, FeedUserInterest
+from web.models import (
+    Category,
+    Clip,
+    ClipCategoryScore,
+    ClipUserView,
+    FeedItem,
+    Feed,
+    FeedUserInterest,
+    UserCategoryScore,
+)
 
 
 class TimestampedSerializer(serializers.ModelSerializer):
@@ -29,8 +38,45 @@ class FeedItemSerializer(TimestampedSerializer):
         fields = ["id", "name", "feed", "posted_at", "created_at", "updated_at"]
 
 
+class CategorySerializer(serializers.ModelSerializer):
+    clip_count = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = Category
+        fields = [
+            "id",
+            "name",
+            "parent",
+            "user_friendly_name",
+            "user_friendly_parent_name",
+            "should_display",
+            "clip_count",
+        ]
+
+    def get_clip_count(self, obj):
+        return getattr(obj, "clip_count", None)
+
+
+class ClipCategoryScoreSerializer(serializers.ModelSerializer):
+    category = CategorySerializer(read_only=True)
+
+    class Meta:
+        model = ClipCategoryScore
+        fields = ["id", "category", "score"]
+
+
+class UserCategoryScoreSerializer(serializers.ModelSerializer):
+    category = CategorySerializer(read_only=True)
+
+    class Meta:
+        model = UserCategoryScore
+        fields = ["id", "user", "category", "score", "created_at", "updated_at"]
+        read_only_fields = ["user", "created_at", "updated_at"]
+
+
 class ClipSerializer(TimestampedSerializer):
     feed_item = FeedItemSerializer()
+    categories = serializers.SerializerMethodField()
 
     class Meta:
         model = Clip
@@ -43,9 +89,14 @@ class ClipSerializer(TimestampedSerializer):
             "end_time",
             "audio_bucket_key",
             "feed_item",
+            "categories",
             "created_at",
             "updated_at",
         ]
+
+    def get_categories(self, obj):
+        categories = obj.clipcategoryscore_set.order_by("-score")
+        return ClipCategoryScoreSerializer(categories, many=True).data
 
 
 class ClipUserViewSerializer(TimestampedSerializer):

@@ -151,3 +151,51 @@ class FeedUserInterest(models.Model):
 
     def __str__(self):
         return f"{self.user.username} {"follows" if self.is_interested else "blocks"} {self.feed.name}"
+    
+
+class Category(models.Model):
+    name = models.CharField(max_length=255)
+    parent = models.ForeignKey('self', on_delete=models.CASCADE, related_name='children', null=True, blank=True)
+    user_friendly_name = models.CharField(max_length=255, null=True, blank=True)
+    user_friendly_parent_name = models.CharField(max_length=255, null=True, blank=True)
+    should_display = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.name
+
+    @property
+    def display_name(self):
+        if self.user_friendly_name:
+            return self.user_friendly_name
+        else:
+            return self.name.replace("/Other", "").split("/")[-1]
+
+    class Meta:
+        unique_together = ('name', 'parent')
+
+class ClipCategoryScore(models.Model):
+    clip = models.ForeignKey(Clip, on_delete=models.CASCADE)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    score = models.FloatField()
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('clip', 'category')
+
+    def __str__(self):
+        return f'{self.clip.name} - {self.category.display_name}: {self.score}'
+    
+
+class UserCategoryScore(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    score = models.FloatField()
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('user', 'category')
+
+    def __str__(self):
+        return f"{self.user.username} - {self.category.name}: {self.score}"

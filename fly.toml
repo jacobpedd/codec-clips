@@ -14,7 +14,7 @@ console_command = '/code/manage.py shell'
 
 [processes]
   app = "python -m gunicorn --bind :8000 --timeout 180 codec.wsgi"
-  worker = "python -m celery -A codec worker -B --concurrency=10 -l info -O fair"
+  worker = "python -m celery -A codec worker -B --concurrency=8 -l info -O fair"
   flower = "python -m celery -A codec flower -l info"
 
 [env]

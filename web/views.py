@@ -3,6 +3,7 @@ import re
 from django.utils import timezone
 from datetime import timedelta
 from rest_framework import viewsets, status
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -30,6 +31,7 @@ from django.db.models import (
     Window,
     F,
     Exists,
+    Count,
 )
 from django.db.models.functions import Extract, RowNumber
 from django.shortcuts import render
@@ -45,11 +47,13 @@ from pgvector.django import CosineDistance
 from django.contrib.postgres.aggregates import ArrayAgg
 from web import serializers
 from web.models import (
+    Category,
     Clip,
     ClipUserView,
     FeedTopic,
     FeedUserInterest,
     Feed,
+    UserCategoryScore,
 )
 import resend
 
@@ -105,6 +109,12 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
         exclude_clip_ids = self.request.query_params.getlist("exclude_clip_ids", [])
         if len(exclude_clip_ids) == 1 and "," in exclude_clip_ids[0]:
             exclude_clip_ids = exclude_clip_ids[0].split(",")
+
+        # Get topic_ids from query parameters
+        topic_ids = self.request.query_params.getlist("topic_ids", [])
+        if len(topic_ids) == 1 and "," in topic_ids[0]:
+            topic_ids = topic_ids[0].split(",")
+        topic_ids = [int(id) for id in topic_ids if id.isdigit()]
 
         # Exclude clips from feeds the user has already viewed
         recent_feeds = (
@@ -177,6 +187,14 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
             .exclude(feed_item__id__in=excluded_clip_feeds)
         )
 
+        # Filter by topic_ids if provided
+        if topic_ids:
+            # TODO: Possibly integrate the score so more relevant clips are ranked higher
+            base_query = base_query.filter(
+                clipcategoryscore__category__id__in=topic_ids,
+                clipcategoryscore__score__gt=0,
+            )
+
         if ClipUserView.objects.filter(user=user).count() < 10:
             print("Using cold start")
             # Cold start: use only feed embeddings if no clip data is available
@@ -243,20 +261,23 @@ class QueueViewSet(viewsets.ReadOnlyModelViewSet):
 
         # Get a random clip
         # TODO: Exclude clips from any viewed feedItem? Or viewed feeds?
-        one_week_ago = timezone.now() - timedelta(days=7)
-        random_clip = (
-            Clip.objects.filter(
-                created_at__gte=one_week_ago,
-                feed_item__feed__is_english=True,
+        if not topic_ids:
+            one_week_ago = timezone.now() - timedelta(days=7)
+            random_clip = (
+                Clip.objects.filter(
+                    created_at__gte=one_week_ago,
+                    feed_item__feed__is_english=True,
+                )
+                .exclude(user_views__user=user)
+                .exclude(id__in=exclude_clip_ids)
+                .exclude(
+                    feed_item__feed__in=Subquery(final_clips.values("feed_item__feed"))
+                )
+                .order_by("?")
+                .first()
             )
-            .exclude(user_views__user=user)
-            .exclude(id__in=exclude_clip_ids)
-            .exclude(
-                feed_item__feed__in=Subquery(final_clips.values("feed_item__feed"))
-            )
-            .order_by("?")
-            .first()
-        )
+        else:
+            random_clip = None
 
         final_clips = list(final_clips)
         if random_clip:
@@ -372,6 +393,57 @@ class FeedUserInterestViewSet(viewsets.ModelViewSet):
         instance = self.get_object()
         self.perform_destroy(instance)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = serializers.CategorySerializer
+    permission_classes = [IsAuthenticated]
+
+    class Pagination(PageNumberPagination):
+        page_size = 1000
+        page_size_query_param = "page_size"
+        max_page_size = 10000
+
+    pagination_class = Pagination
+
+    def get_queryset(self):
+        queryset = Category.objects.annotate(
+            clip_count=Count("clipcategoryscore__clip", distinct=True)
+        )
+
+        should_display = self.request.query_params.get("should_display", None)
+        if should_display is not None:
+            queryset = queryset.filter(should_display=should_display.lower() == "true")
+
+        return queryset.order_by("-clip_count")
+
+
+class UserCategoryScoreViewSet(viewsets.ModelViewSet):
+    serializer_class = serializers.UserCategoryScoreSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return UserCategoryScore.objects.filter(user=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        category_id = request.data.get("category")
+        score = request.data.get("score")
+
+        if not category_id or score is None:
+            return Response(
+                {"error": "Both category and score are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        instance, created = UserCategoryScore.objects.update_or_create(
+            user=request.user, category_id=category_id, defaults={"score": score}
+        )
+
+        serializer = self.get_serializer(instance)
+        return Response(
+            serializer.data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 class RegisterView(APIView):

@@ -4,11 +4,12 @@ import soundfile as sf
 import pyloudnorm as pyln
 from celery import shared_task
 from celery.utils.log import get_task_logger
+from web.lib.categorize import get_categories
 from web.lib.clipper import clipper, generate_clips_audio
 from web.lib.clipper.transcript_utils import format_transcript_by_time
 from web.lib.embed import get_embedding
 from web.lib.r2 import get_audio_transcript, download_audio_file, upload_file_to_r2
-from web.models import FeedItem, Clip
+from web.models import Category, ClipCategoryScore, FeedItem, Clip
 
 logging = get_task_logger(__name__)
 
@@ -27,14 +28,15 @@ def generate_clips_from_feed_item(feed_item_id: int) -> None:
     # Create clip audio files
     clip_audio_bucket_keys = generate_clips_audio(feed_item.audio_bucket_key, clips)
 
-    # Generate clip embeddings
-    clip_transcript = format_transcript_by_time(
-        transcript, clips[0]["start"], clips[0]["end"]
-    )
-    clip_embedding = get_embedding(clip_transcript)
-
     # Save clips to models and normalize audio
     for clip, clip_audio_bucket_key in zip(clips, clip_audio_bucket_keys):
+        # Generate clip embeddings
+        clip_transcript = format_transcript_by_time(
+            transcript, clip["start"], clip["end"]
+        )
+        clip_embedding = get_embedding(clip_transcript)
+
+        # Create the clip
         new_clip = Clip.objects.create(
             name=clip["name"],
             body="",
@@ -45,6 +47,13 @@ def generate_clips_from_feed_item(feed_item_id: int) -> None:
             transcript_embedding=clip_embedding,
             feed_item=feed_item,
         )
+
+        # Get categories for the clip
+        categories = get_categories(clip_transcript)
+        # Reverse so high scores overwrite low scores
+        categories.reverse()
+        for category in categories:
+            update_category_and_parents(new_clip, category.name, category.confidence)
 
         # Queue normalization task for the new clip
         normalize_clip_audio.delay(new_clip.id)
@@ -92,25 +101,66 @@ def normalize_clip_audio(clip_id):
 
 @shared_task
 def update_clip_embedding(clip_id):
-    try:
-        clip = Clip.objects.get(id=clip_id)
-        feed_item = clip.feed_item
+    clip = Clip.objects.get(id=clip_id)
+    feed_item = clip.feed_item
 
-        # Get the transcript
-        transcript = get_audio_transcript(feed_item.transcript_bucket_key)
+    # Get the transcript
+    transcript = get_audio_transcript(feed_item.transcript_bucket_key)
 
-        # Format the transcript for the specific clip
-        clip_transcript = format_transcript_by_time(
-            transcript, clip.start_time, clip.end_time
-        )
+    # Format the transcript for the specific clip
+    clip_transcript = format_transcript_by_time(
+        transcript, clip.start_time, clip.end_time
+    )
 
-        # Generate the embedding
-        clip_embedding = get_embedding(clip_transcript)
+    # Generate the embedding
+    clip_embedding = get_embedding(clip_transcript)
 
-        # Update the clip with the new embedding
-        clip.transcript_embedding = clip_embedding
-        clip.save()
+    # Update the clip with the new embedding
+    clip.transcript_embedding = clip_embedding
+    clip.save()
 
-        return f"Successfully updated embedding for clip {clip_id}"
-    except Exception as e:
-        return f"Error updating embedding for clip {clip_id}: {str(e)}"
+    return f"Successfully updated embedding for clip {clip_id}"
+
+
+@shared_task(rate_limit="600/m")
+def update_clip_categories(clip_id: int) -> None:
+    clip = Clip.objects.get(id=clip_id)
+
+    # Get the transcript
+    transcript = get_audio_transcript(clip.feed_item.transcript_bucket_key)
+
+    # Format the transcript for the specific clip
+    clip_transcript = format_transcript_by_time(
+        transcript, clip.start_time, clip.end_time
+    )
+
+    categories = get_categories(clip_transcript)
+
+    # Reverse so high scores overwrite low scores
+    categories.reverse()
+
+    for category in categories:
+        update_category_and_parents(clip, category.name, category.confidence)
+
+    return f"Successfully updated categories for clip {clip_id}"
+
+
+def update_category_and_parents(clip, full_path, score):
+    if full_path is None or full_path == "":
+        return None
+
+    parts = full_path.rsplit("/", 1)
+
+    # Handle the case where there's no parent path
+    if len(parts) > 1:  # This means there's no "/" in the full_path
+        parent_path = parts[0]
+        update_category_and_parents(clip, parent_path, score)
+
+    category = Category.objects.filter(name=full_path).first()
+    if not category:
+        raise ValueError(f"Category {full_path} does not exist")
+
+    # Update the ClipCategoryScore for this clip and category
+    ClipCategoryScore.objects.update_or_create(
+        clip=clip, category=category, defaults={"score": score}
+    )

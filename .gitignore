@@ -2,6 +2,7 @@ clips/
 data/
 .env
 .venv
+.shapedenv
 .DS_Store
 
 # Byte-compiled / optimized / DLL files
