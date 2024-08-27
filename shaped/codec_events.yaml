@@ -1,0 +1,9 @@
+name: codec_events
+schema_type: POSTGRES
+table: events_view
+user: shaped_read_only
+password: KHf8HG1wW0IuHPh0rl04
+host: codec-vector-db.fly.dev
+port: 5432
+database: codec
+replication_key: updated_at
