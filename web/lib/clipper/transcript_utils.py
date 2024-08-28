@@ -165,3 +165,24 @@ def format_transcript_by_time(transcript: list, start_time: int, end_time: int):
             break
 
     return clip_transcript.strip()
+
+
+def format_episode_description(description: str) -> str:
+    import re
+
+    # Remove common HTML tags
+    description = re.sub(r'</?(?:p|span|em|br|a|strong)[^>]*>', '', description)
+    
+    # Remove hashtag phrases
+    description = re.sub(r'#\w+', '', description)
+    
+    # Remove extra whitespace
+    description = re.sub(r'\s+', ' ', description).strip()
+
+    # Remove links
+    description = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '[LINK]', description)
+
+    if len(description) > 500:
+        description = description[:497] + "..."
+    
+    return description

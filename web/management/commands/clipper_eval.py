@@ -10,8 +10,9 @@ from web.lib.clipper.clip_audio import save_clip_audio
 from web.lib.clipper.transcript_utils import (
     format_clip_prompt,
 )
-
 from web.lib.r2 import download_audio_file, get_audio_transcript
+from web.models import FeedItem
+from web.lib.clipper.transcript_utils import format_episode_description
 
 DATA_DIR = "./data"
 
@@ -21,7 +22,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--name", type=str, required=True, help="Name of the dataset"
+            "--name", 
+            type=str, 
+            required=True, 
+            help="Name of the dataset"
         )
         parser.add_argument(
             "--description",
@@ -65,9 +69,18 @@ class Command(BaseCommand):
 
 
 def run_clipper(inputs: dict, max_iters: int, max_retries: int, audio: bool) -> dict:
-    clips, iters, retries = clipper(
-        inputs["transcript"], max_iters=max_iters, max_retries=max_retries
-    )
+    feed_item = FeedItem.objects.get(id=inputs["id"])
+    feed = feed_item.feed
+
+    show = feed.name
+    episode = feed_item.name
+    description = format_episode_description(feed_item.body)
+
+    print(f"\nShow: {show}")
+    print(f"Episode: {episode}")
+    print(f"Episode description: {description}")
+
+    clips, iters, retries = clipper(inputs["transcript"], show, episode, description, max_iters=max_iters, max_retries=max_retries)
 
     if audio:
         save_clip_data(inputs["name"], inputs["audio_url"], clips)

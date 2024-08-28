@@ -6,74 +6,6 @@ from .transcript_utils import (
 )
 from langsmith import traceable
 
-SYSTEM_MESSAGE = {
-    "role": "system",
-    "content": "\n".join(
-        [
-            "# Role and Context",
-            "You are an AI assistant helping podcast hosts find viral clips within transcripts of an episode of their show. The clips should be 2-10 minutes long and will be posted to their YouTube channel.",
-            "",
-            "# Task",
-            "Identify compelling clips in podcast transcripts for short-form video content.",
-            "",
-            "# Input",
-            "The user will provide a podcast transcript with speaker labels and sentence indexing.",
-            "The speaker labels will be alphanumeric.",
-            "Each utterance starts with a header in the format: '# [Speaker] [Timestamp]'",
-            "Timestamps are in mm:ss format or h:mm:ss format.",
-            "Each sentence within an utterance is preceded by a numeric index.",
-            "The transcript may contain errors due to speech-to-text conversion. Occasionally, the transcript is unable to distinguish between speakers.",
-            "",
-            "# Transcript Format Example:",
-            "# A 0:00",
-            "0 Welcome to our podcast!",
-            "1 Today, we're discussing AI advancements.",
-            "",
-            "# B 0:15",
-            "2 That's right, it's a fascinating topic.",
-            "3 Let's dive right in.",
-            "",
-            "# Clip Criteria",
-            "## Count"
-            "- Identify up to 3 of the most compelling viral clips from the transcript",
-            "- Prioritize quality over quantity. It's better to submit 1-2 excellent clips than 3 mediocre ones",
-            "- Ensure clips do not overlap. If clip A ends at sentence index 20, clip B should start at sentence index 21 or later",
-            "- Make sure the clips cover separate topics from the conversation. Avoid submitting clips that are too similar to each other.",
-            "",
-            "## Content"
-            "- Never include the show's intro, outro, advertisements, or promotions.",
-            "- The clips will be listened to with no context, so they must be self-contained and entertaining without the rest of the transcript.",
-            "- Never start or end clips in the middle of a topic",
-            "- Consider segments with strong emotional impact, surprising facts, or humorous exchanges",
-            "- The goal is for the clips to go viral on YouTube.",
-            "",
-            "## Duration"
-            "- Clips MUST be between 2 and 10 minutes long, as calculated using the timing information",
-            "- Pay close attention to the timing information to ensure accurate clip duration",
-            "- Aim for clips closer to 5 minutes when possible, as very short clips are often rejected",
-            "",
-            "# Output Format",
-            "Use the submit_clips tool to submit the clips to the user for review.",
-            "Provide the start and end sentence indices for each clip.",
-            "These indices should correspond directly to the sentence numbers in the transcript.",
-            "Choose clips that are far apart in the transcript to avoid overlapping clips.",
-            "Choose clips that discuss separate topics when possible.",
-            "",
-            "Example of a well-formatted clip:",
-            "{",
-            '  "reasoning": "This clip discusses a surprising fact about the guest\'s workout routine, which contradicts public perception. It\'s likely to generate interest and discussion.",',
-            '  "start_index": 45,',
-            '  "end_index": 52,',
-            "}",
-            "",
-            "Only submit clips that meet all criteria. It's better to submit fewer high-quality clips than to force three clips if there aren't enough compelling segments.",
-            "If any of the above criteria are not met for any clips, submit_clips will return an error with instructions on how to fix the issue.",
-            "Keep working on the clips until the submission is successful.",
-            "Double-check that all clips are between 2 and 10 minutes long before submitting, using the provided timing information.",
-        ]
-    ),
-}
-
 TOOLS = [
     {
         "type": "function",
@@ -89,9 +21,21 @@ TOOLS = [
                         "items": {
                             "type": "object",
                             "properties": {
-                                "reasoning": {
+                                "content_reasoning": {
                                     "type": "string",
-                                    "description": "A short explanation of why you selected this clip.",
+                                    "description": "A short explanation of why this clip's content is compelling and likely to go viral on YouTube.",
+                                },
+                                "duration_reasoning": {
+                                    "type": "string",
+                                    "description": "An explanation of why this clip's duration is between 2 and 10 minutes.",
+                                },
+                                "start_reasoning": {
+                                    "type": "string",
+                                    "description": "An explanation of why this clip starts at this sentence index.",
+                                },
+                                "end_reasoning": {
+                                    "type": "string",
+                                    "description": "An explanation of why this clip ends at this sentence index.",
                                 },
                                 "start_index": {
                                     "type": "integer",
@@ -114,14 +58,78 @@ TOOLS = [
 
 
 @traceable
-def generate_clips(transcript: str, max_iters: int = 10) -> tuple:
+def generate_clips(transcript: str, show: str = None, episode: str = None, description: str = None, max_iters: int = 10) -> tuple:
     transcript_prompt, sentence_timings = format_transcript_prompt(transcript)
     messages = [
-        SYSTEM_MESSAGE,
+        {
+            "role": "system",
+            "content": f"You are an expert podcast producer for the podcast show, {show}. Your task is to identify viral clips from the transcript of their podcast episode, {episode}. The clips must be at least 3 minutes in length and no longer than 10 minutes. The clips will be posted to the official {show} YouTube channel.",
+        },
         {
             "role": "user",
-            "content": f"<transcript>{transcript_prompt}</transcript>",
+            "content": f'''<transcript>
+{transcript_prompt}
+</transcript>
+{f'<show>{show}</show>' if show else ''}
+{f'<episode>{episode}</episode>' if episode else ''}
+{f'<episode_description>{description}</episode_description>' if description else ''}
+<instructions>
+Based on the transcript with the context of the show, episode, and episode description, identify up to 3 compelling viral clips that will be posted to the official {show} YouTube channel.
+
+Transcript format:
+- The podcast transcript contains speaker labels and sentence indexing
+- The speaker labels are alphanumeric
+- Each utterance starts with a header in the format: '# [Speaker] [Timestamp]'
+- Timestamps are in mm:ss format or h:mm:ss format.
+- Each sentence within an utterance is preceded by a numeric index
+- The transcript may contain errors due to speech-to-text conversion. Occasionally, the transcript is unable to distinguish between speakers
+
+Clip selection criteria:
+- Clips must be between 3 and 10 minutes in length
+- Clips must be self-contained and entertaining without the rest of the transcript since they will be listened to with no context
+- Clips should discuss separate topics, if possible
+- Clips must not overlap
+- Prioritize quality over quantity. It's better to submit 1 or 2 excellent clips than 3 mediocre ones
+- Clips must be compelling and likely to go viral on YouTube
+- NEVER include the show's intro, outro, advertisements, promotions, beginning, or ending in a clip
+- NEVER start or end clips in the middle of a topic
+
+Submitting clips:
+- Use the submit_clips tool to submit the clips to the user for review
+- Provide the start and end sentence indices for each clip.
+- These indices should correspond directly to the sentence numbers in the transcript
+- Avoid overlapping clips by choosing clips that are far apart in the transcript
+- If any of the above criteria are not met for any clips, submit_clips will return an error with instructions on how to fix the issue
+- Keep working on the clips until the submission is successful
+- You should provide reasoning as to why you selected the content, duration, start, and end indices for each clip
+
+Example of a great clip:
+{{
+    "content_reasoning": "This clip discusses a surprising fact about the guest's workout routine, which contradicts public perception. It's likely to generate interest and discussion.",
+    "duration_reasoning": "The clip is approximately 5 minutes long, falling within the 3-10 minute range.",
+    "start_reasoning": "The clip starts with the introduction of the guest's workout routine, setting up the context for the clip.",
+    "end_reasoning": "The clip ends with the guest's workout routine and ways to incorporate it into one's own fitness regimen, providing a comprehensive overview of the topic.",
+    "start_index": 45,
+    "end_index": 110,
+}}
+
+Example of a bad clip due to starting at the beginning of the show, overlapping with the previous clip (end_index > start_index of previous clip), and poor reasoning on why the start and end indices are selected:
+{{
+    "content_reasoning": "This clip discusses the guest's workout routine, which contradicts public perception. It's likely to generate interest and discussion.",
+    "duration_reasoning": "The clip is approximately 5 minutes long, falling within the 3-10 minute range.",
+    "start_reasoning": "The clip starts at sentence index 0, which is the beginning of the show.",
+    "end_reasoning": "The clip ends at sentence index 52, which is the end of the show.",
+    "start_index": 0,
+    "end_index": 52,
+}}
+
+You will be FIRED if you submit clips that do not meet the criteria, aren't supported by reasoning, overlap with other clips, or are not interesting enough to go viral on YouTube.
+</instructions>''',
         },
+        # {
+        #     "role": "assistant",
+        #     "content": "Based on the transcript, here are compelling clips I've identified to submit to the submit_clips tool that meet the criteria:"
+        # }
     ]
 
     for iters in range(max_iters):

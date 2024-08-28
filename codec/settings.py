@@ -91,11 +91,11 @@ if DEBUG:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql_psycopg2",
-            "NAME": "codec",
+            "NAME": "codec",            
             "USER": "codec",
             "PASSWORD": "codec",
-            "HOST": "",
-            "PORT": "",
+            "HOST": "localhost",
+            "PORT": "5432",
         }
     }
 else:

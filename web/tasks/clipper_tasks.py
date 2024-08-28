@@ -23,7 +23,7 @@ def generate_clips_from_feed_item(feed_item_id: int) -> None:
 
     # Generate clips with LLM
     transcript = get_audio_transcript(feed_item.transcript_bucket_key)
-    clips, _, _ = clipper(transcript)
+    clips, _, _ = clipper(transcript, podcast_name=feed_item.name, podcast_description=feed_item.body)
 
     # Create clip audio files
     clip_audio_bucket_keys = generate_clips_audio(feed_item.audio_bucket_key, clips)

@@ -1,3 +1,4 @@
+import string
 from langsmith import traceable
 
 from .transcript_utils import format_clip_prompt
@@ -7,8 +8,8 @@ from .add_metadata import add_metadata
 
 
 @traceable
-def clipper(transcript: list, max_iters: int = 10, max_retries: int = 1):
-    # Generate clips with retires
+def clipper(transcript: list, show: string = None, episode: string = None, description: string = None, max_iters: int = 10, max_retries: int = 1):
+    # Generate clips with retries
     for attempt in range(max_retries):
         try:
             clips, iters = generate_clips(transcript, max_iters=max_iters)
@@ -19,14 +20,14 @@ def clipper(transcript: list, max_iters: int = 10, max_retries: int = 1):
             continue
 
     # Refine clips
-    clips = [refine_clip(transcript, clip) for clip in clips]
+    # clips = [refine_clip(transcript, clip) for clip in clips]
     clip_len = len(clips)
     clips = filter_overlapping_clips(clips)
     if len(clips) < clip_len:
         print(f"Filtered {clip_len - len(clips)} clips due to overlap after refinement")
 
     # Add metadata
-    clips = [add_metadata(transcript, clip) for clip in clips]
+    clips = [add_metadata(transcript, clip, show, episode, description) for clip in clips]
 
     return clips, iters, attempt
 
