@@ -1,11 +1,17 @@
 import json
 from web.lib.llm_client import llm_client
-from .transcript_utils import format_clip_prompt
+from web.models import FeedItem
+from .transcript_utils import format_clip_prompt, format_episode_description
 from langsmith import traceable
 
+
 @traceable
-def add_metadata(transcript: str, clip: dict, show: str = None, episode: str = None, description: str = None) -> dict:
+def add_metadata(transcript: str, clip: dict, feed_item: FeedItem) -> dict:
     clip_prompt, _ = format_clip_prompt(transcript, clip)
+
+    podcast_title = feed_item.feed.name
+    episode_title = feed_item.name
+    episode_description = format_episode_description(feed_item.body)
 
     # Only include lines between <CLIP> and </CLIP>
     clip_prompt = clip_prompt.split("<CLIP>")[1].split("</CLIP>")[0]
@@ -37,16 +43,16 @@ def add_metadata(transcript: str, clip: dict, show: str = None, episode: str = N
     messages = [
         {
             "role": "system",
-            "content": '''You are an expert podcast producer. Your task is to generate a title and description for a viral podcast clip. You will be given a transcript of the clip and you need to generate a title and description that will be used to promote the clip on social media.'''
+            "content": """You are an expert podcast producer. Your task is to generate a title and description for a viral podcast clip. You will be given a transcript of the clip and you need to generate a title and description that will be used to promote the clip on social media.""",
         },
         {
             "role": "user",
-            "content": f'''<transcript>
+            "content": f"""<transcript>
 {clip_prompt}
 </transcript>
-{f'<show>{show}</show>' if show else ''}
-{f'<episode>{episode}</episode>' if episode else ''}
-{f'<episode_description>{description}</episode_description>' if description else ''}
+{f'<show>{podcast_title}</show>' if podcast_title else ''}
+{f'<episode>{episode_title}</episode>' if episode_title else ''}
+{f'<episode_description>{episode_description}</episode_description>' if episode_description else ''}
 <instructions>
 Based on the transcript, show, episode, and episode description, you need to generate:
 1. Title: A concise and specific title for the clip
@@ -85,8 +91,8 @@ To use the tool, format your response like this:
 <function_call>submit_metadata(title="Your clip name here", description="Your summary here")</function_call>
 
 Remember to follow these instructions precisely. Do not include any additional text or explanations outside of the function call. Your entire response should consist solely of the function call with the name and summary you've created based on the transcript.
-</instructions>'''
-        }
+</instructions>""",
+        },
     ]
 
     iters = 0

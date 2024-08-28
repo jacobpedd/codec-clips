@@ -1,5 +1,6 @@
-import string
 from langsmith import traceable
+
+from web.models import FeedItem
 
 from .transcript_utils import format_clip_prompt
 from .critique_clip import critique_clip
@@ -8,7 +9,9 @@ from .add_metadata import add_metadata
 
 
 @traceable
-def clipper(transcript: list, show: string = None, episode: string = None, description: string = None, max_iters: int = 10, max_retries: int = 1):
+def clipper(
+    transcript: list, feed_item: FeedItem, max_iters: int = 10, max_retries: int = 1
+):
     # Generate clips with retries
     for attempt in range(max_retries):
         try:
@@ -27,7 +30,7 @@ def clipper(transcript: list, show: string = None, episode: string = None, descr
         print(f"Filtered {clip_len - len(clips)} clips due to overlap after refinement")
 
     # Add metadata
-    clips = [add_metadata(transcript, clip, show, episode, description) for clip in clips]
+    clips = [add_metadata(transcript, clip, feed_item) for clip in clips]
 
     return clips, iters, attempt
 

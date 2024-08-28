@@ -29,7 +29,7 @@ class Command(BaseCommand):
                 )
 
                 # Start async task to generate clips for the feed item
-                generate_clips_from_feed_item(feed_item.id)
+                generate_clips_from_feed_item.delay(feed_item.id)
 
                 self.stdout.write(
                     self.style.SUCCESS(

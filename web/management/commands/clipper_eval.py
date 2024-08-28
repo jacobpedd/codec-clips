@@ -22,10 +22,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--name", 
-            type=str, 
-            required=True, 
-            help="Name of the dataset"
+            "--name", type=str, required=True, help="Name of the dataset"
         )
         parser.add_argument(
             "--description",
@@ -70,17 +67,10 @@ class Command(BaseCommand):
 
 def run_clipper(inputs: dict, max_iters: int, max_retries: int, audio: bool) -> dict:
     feed_item = FeedItem.objects.get(id=inputs["id"])
-    feed = feed_item.feed
 
-    show = feed.name
-    episode = feed_item.name
-    description = format_episode_description(feed_item.body)
-
-    print(f"\nShow: {show}")
-    print(f"Episode: {episode}")
-    print(f"Episode description: {description}")
-
-    clips, iters, retries = clipper(inputs["transcript"], show, episode, description, max_iters=max_iters, max_retries=max_retries)
+    clips, iters, retries = clipper(
+        inputs["transcript"], feed_item, max_iters=max_iters, max_retries=max_retries
+    )
 
     if audio:
         save_clip_data(inputs["name"], inputs["audio_url"], clips)
