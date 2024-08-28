@@ -34,7 +34,7 @@ def log_new_user(sender, instance, created, **kwargs):
                 icon="👤",
                 channel="users",
                 notify=True,
-                user_id=instance.user.username,
+                user_id=instance.username,
             )
         except Exception as e:
             print(f"Error sending event to LogSnag: {e}")
