@@ -6,7 +6,10 @@ from celery import shared_task
 from celery.utils.log import get_task_logger
 from web.lib.categorize import get_categories
 from web.lib.clipper import clipper, generate_clips_audio
-from web.lib.clipper.transcript_utils import format_transcript_by_time
+from web.lib.clipper.transcript_utils import (
+    format_episode_description,
+    format_transcript_by_time,
+)
 from web.lib.embed import get_embedding
 from web.lib.r2 import get_audio_transcript, download_audio_file, upload_file_to_r2
 from web.models import Category, ClipCategoryScore, FeedItem, Clip
@@ -23,7 +26,7 @@ def generate_clips_from_feed_item(feed_item_id: int) -> None:
 
     # Generate clips with LLM
     transcript = get_audio_transcript(feed_item.transcript_bucket_key)
-    clips, _, _ = clipper(transcript, podcast_name=feed_item.name, podcast_description=feed_item.body)
+    clips, _, _ = clipper(transcript, feed_item)
 
     # Create clip audio files
     clip_audio_bucket_keys = generate_clips_audio(feed_item.audio_bucket_key, clips)
