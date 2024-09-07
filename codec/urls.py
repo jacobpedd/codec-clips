@@ -39,4 +39,6 @@ urlpatterns = [
         views.PasswordResetFormView.as_view(),
         name="password_reset_confirm",
     ),
+    # topic manager app
+    path("topic-manager/", include("topic_manager.urls")),
 ]

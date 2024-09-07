@@ -3,16 +3,16 @@ import ffmpeg
 import soundfile as sf
 import pyloudnorm as pyln
 from celery import shared_task
+from django.db import transaction
 from celery.utils.log import get_task_logger
-from web.lib.categorize import get_categories
+from web.lib.clip_tagger import clip_tagger
 from web.lib.clipper import clipper, generate_clips_audio
 from web.lib.clipper.transcript_utils import (
-    format_episode_description,
     format_transcript_by_time,
 )
 from web.lib.embed import get_embedding
 from web.lib.r2 import get_audio_transcript, download_audio_file, upload_file_to_r2
-from web.models import Category, ClipCategoryScore, FeedItem, Clip
+from web.models import ClipCategoryScore, ClipTopicScore, FeedItem, Clip
 
 logging = get_task_logger(__name__)
 
@@ -51,12 +51,8 @@ def generate_clips_from_feed_item(feed_item_id: int) -> None:
             feed_item=feed_item,
         )
 
-        # Get categories for the clip
-        categories = get_categories(clip_transcript)
-        # Reverse so high scores overwrite low scores
-        categories.reverse()
-        for category in categories:
-            update_category_and_parents(new_clip, category.name, category.confidence)
+        # Run tagging for the new clip
+        run_clip_tagger.delay(new_clip.id)
 
         # Queue normalization task for the new clip
         normalize_clip_audio.delay(new_clip.id)
@@ -125,45 +121,53 @@ def update_clip_embedding(clip_id):
     return f"Successfully updated embedding for clip {clip_id}"
 
 
-@shared_task(rate_limit="600/m")
-def update_clip_categories(clip_id: int) -> None:
-    clip = Clip.objects.get(id=clip_id)
+@shared_task()
+def run_clip_tagger(clip_id: int, nearest_neighbors: int = 40) -> None:
+    try:
+        clip = Clip.objects.get(id=clip_id)
+    except Clip.DoesNotExist:
+        logging.error(f"Clip with ID {clip_id} does not exist")
+        return f"Error: Clip with ID {clip_id} does not exist"
 
-    # Get the transcript
-    transcript = get_audio_transcript(clip.feed_item.transcript_bucket_key)
+    try:
+        categories, primary_topics, mentioned_topics = clip_tagger(
+            clip, nearest_neighbors
+        )
 
-    # Format the transcript for the specific clip
-    clip_transcript = format_transcript_by_time(
-        transcript, clip.start_time, clip.end_time
-    )
+        logging.info(f"Clip tagger results for clip {clip_id}:")
+        logging.info(f"Categories: {categories}")
+        logging.info(f"Primary topics: {primary_topics}")
+        logging.info(f"Mentioned topics: {mentioned_topics}")
 
-    categories = get_categories(clip_transcript)
+        with transaction.atomic():
+            # Delete existing ClipTopicScores and ClipCategoriesScores for this clip
+            ClipTopicScore.objects.filter(clip=clip).delete()
+            ClipCategoryScore.objects.filter(clip=clip).delete()
 
-    # Reverse so high scores overwrite low scores
-    categories.reverse()
+            # Save categories
+            for category in categories:
+                ClipCategoryScore.objects.update_or_create(
+                    clip=clip,
+                    category=category,
+                    defaults={"score": 1.0},
+                )
 
-    for category in categories:
-        update_category_and_parents(clip, category.name, category.confidence)
+            # Save primary topics
+            for topic, score in primary_topics:
+                ClipTopicScore.objects.create(
+                    clip=clip, topic=topic, score=score, is_primary=True
+                )
 
-    return f"Successfully updated categories for clip {clip_id}"
+            # Save mentioned topics
+            for topic, score in mentioned_topics:
+                ClipTopicScore.objects.create(
+                    clip=clip, topic=topic, score=score, is_primary=False
+                )
 
+        logging.info(f"Successfully updated topics for clip {clip_id}")
+        return f"Successfully updated topics for clip {clip_id}"
 
-def update_category_and_parents(clip, full_path, score):
-    if full_path is None or full_path == "":
-        return None
-
-    parts = full_path.rsplit("/", 1)
-
-    # Handle the case where there's no parent path
-    if len(parts) > 1:  # This means there's no "/" in the full_path
-        parent_path = parts[0]
-        update_category_and_parents(clip, parent_path, score)
-
-    category = Category.objects.filter(name=full_path).first()
-    if not category:
-        raise ValueError(f"Category {full_path} does not exist")
-
-    # Update the ClipCategoryScore for this clip and category
-    ClipCategoryScore.objects.update_or_create(
-        clip=clip, category=category, defaults={"score": score}
-    )
+    except Exception as e:
+        logging.error(f"Error updating topics for clip {clip_id}: {str(e)}")
+        logging.exception("Full traceback:")
+        return f"Error updating topics for clip {clip_id}: {str(e)}"

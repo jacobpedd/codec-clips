@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Topic Hierarchy</title>
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        h1 {
+            text-align: center;
+            margin: 0 0 10px 0;
+        }
+        .container {
+            display: flex;
+            justify-content: space-between;
+            flex-grow: 1;
+            margin-bottom: 10px;
+            min-height: 0;
+        }
+        .column {
+            width: 48%;
+            border: 1px solid #ccc;
+            padding: 10px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+        .column h2 {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        .topic-list {
+            overflow-y: auto;
+            flex-grow: 1;
+            min-height: 0;
+        }
+        ul {
+            list-style-type: none;
+            padding-left: 10px; /* Decreased from 20px */
+            margin: 0;
+        }
+        .root-list {
+            padding-left: 0; /* No padding for the root list */
+        }
+        .children {
+            padding-left: 15px; /* Slightly more indent for children */
+        }
+        .toggle {
+            cursor: pointer;
+            display: inline-block;
+            width: 20px;
+            text-align: center;
+            margin-right: 5px;
+        }
+        .toggle-placeholder {
+            display: inline-block;
+            width: 20px;
+            margin-right: 5px;
+        }
+        .topic-item, .orphan-topic-item {
+            margin-bottom: 5px;
+            padding: 2px 5px;
+            border-radius: 3px;
+            transition: background-color 0.2s ease;
+            cursor: move;
+        }
+        .topic-item:hover, .orphan-topic-item:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+        .topic-content, .orphan-topic-content {
+            display: flex;
+            align-items: center;
+        }
+        .topic-name, .orphan-topic-name {
+            flex-grow: 1;
+            cursor: pointer;
+            position: relative;
+        }
+        .delete-button {
+            cursor: pointer;
+            color: black;
+            font-weight: bold;
+            margin-left: 10px;
+            opacity: 0.5;
+            transition: opacity 0.2s ease;
+        }
+        .topic-item:hover .delete-button {
+            opacity: 1;
+        }
+        .topic-item.drag-over, .orphan-topic-item.drag-over {
+            border: 2px dashed #666;
+        }
+        .filter-input {
+            width: 100%;
+            padding: 5px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        .orphan-topic-item {
+            margin-bottom: 5px;
+            padding: 2px 5px;
+            border-radius: 3px;
+            transition: background-color 0.2s ease;
+            cursor: move;
+        }
+        .orphan-topic-item:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+        .orphan-topic-content {
+            display: flex;
+            align-items: center;
+        }
+        .orphan-topic-name {
+            flex-grow: 1;
+            cursor: pointer;
+        }
+        .logs {
+            width: 100%;
+            height: 150px;
+            border: 1px solid #ccc;
+            padding: 10px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .logs p {
+            margin: 0;
+            padding: 2px 0;
+        }
+        .logs h3 {
+            font-family: sans-serif;
+            font-size: 14px;
+            margin-top: 0;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Topic Manager</h1>
+    <div class="container">
+        <div class="column">
+            <h2>Orphaned Topics ({{ orphan_topics|length }})</h2>
+            <input type="text" id="orphaned-filter" class="filter-input" placeholder="Filter orphaned topics..." oninput="filterTopics(this, 'orphaned')">
+            <div class="topic-list">
+                <ul id="orphaned-topics-list">
+                {% for topic in orphan_topics|dictsort:"name" %}
+                    <li class="orphan-topic-item" data-topic-id="{{ topic.id }}" draggable="true">
+                        <div class="orphan-topic-content">
+                            <span class="orphan-topic-name">{{ topic.name }}</span>
+                        </div>
+                    </li>
+                {% endfor %}
+                </ul>
+            </div>
+        </div>
+        <div class="column">
+            <h2>Connected Topics (<span id="connected-topics-count">0</span>)</h2>
+            <input type="text" id="connected-filter" class="filter-input" placeholder="Filter connected topics..." oninput="filterTopics(this, 'connected')">
+            <div class="topic-list">
+                <ul id="connected-topics-list" class="root-list">
+                    {% include "topic_manager/topic_tree.html" with topics=topic_tree %}
+                </ul>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        function toggleChildren(element, topicId) {
+            var childrenList = element.closest('.topic-item').querySelector('.children');
+            if (childrenList) {
+                if (childrenList.style.display === 'none') {
+                    childrenList.style.display = 'block';
+                    element.textContent = '-';
+                    localStorage.setItem('topic_' + topicId, 'expanded');
+                } else {
+                    childrenList.style.display = 'none';
+                    element.textContent = '+';
+                    localStorage.setItem('topic_' + topicId, 'collapsed');
+                }
+            }
+        }
+
+        function initializeTopicStates() {
+            var toggles = document.querySelectorAll('.toggle');
+            toggles.forEach(function(toggle) {
+                var topicId = toggle.getAttribute('data-topic-id');
+                var savedState = localStorage.getItem('topic_' + topicId);
+                var childrenList = toggle.closest('.topic-item').querySelector('.children');
+                
+                if (childrenList) {
+                    if (savedState === 'collapsed') {
+                        toggle.textContent = '+';
+                        childrenList.style.display = 'none';
+                    } else {
+                        toggle.textContent = '-';
+                        childrenList.style.display = 'block';
+                    }
+                }
+            });
+        }
+
+        function saveScrollPositions() {
+            const orphanedList = document.querySelector('.column:first-child .topic-list');
+            const connectedList = document.querySelector('.column:last-child .topic-list');
+            
+            localStorage.setItem('orphanedScrollPosition', orphanedList.scrollTop);
+            localStorage.setItem('connectedScrollPosition', connectedList.scrollTop);
+        }
+
+        function restoreScrollPositions() {
+            const orphanedList = document.querySelector('.column:first-child .topic-list');
+            const connectedList = document.querySelector('.column:last-child .topic-list');
+            
+            const orphanedScrollPosition = localStorage.getItem('orphanedScrollPosition');
+            const connectedScrollPosition = localStorage.getItem('connectedScrollPosition');
+            
+            if (orphanedScrollPosition !== null) {
+                orphanedList.scrollTop = parseInt(orphanedScrollPosition);
+            }
+            if (connectedScrollPosition !== null) {
+                connectedList.scrollTop = parseInt(connectedScrollPosition);
+            }
+        }
+
+        // Add event listener for beforeunload to save scroll positions
+        window.addEventListener('beforeunload', saveScrollPositions);
+
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeTopicStates();
+            loadSavedFilters();
+            updateConnectedTopicsCount();
+            restoreScrollPositions();
+
+            const topicLists = document.querySelectorAll('.topic-list > ul, .children');
+            topicLists.forEach(sortChildTopics);
+
+            const allTopics = document.querySelectorAll('.topic-item, .orphan-topic-item');
+            allTopics.forEach(topic => {
+                topic.draggable = true;
+                topic.addEventListener('dragstart', dragStart);
+                topic.addEventListener('dragover', dragOver);
+                topic.addEventListener('dragleave', dragLeave);
+                topic.addEventListener('drop', drop);
+            });
+        });
+
+        function deleteTopic(topicId) {
+            fetch('/topic-manager/update-topic-parent/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: `topic_id=${topicId}&parent_id=`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log(`Topic successfully moved to orphaned topics.`);
+                    location.reload();
+                } else {
+                    console.error(`Error deleting topic: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error(`Error deleting topic: ${error}`);
+            });
+        }
+
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        function dragStart(event) {
+            event.dataTransfer.setData("text/plain", event.target.closest('.topic-item, .orphan-topic-item').getAttribute("data-topic-id"));
+        }
+
+        function dragOver(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const dropTarget = event.target.closest('.topic-item, .orphan-topic-item');
+            if (dropTarget) {
+                dropTarget.classList.add('drag-over');
+            }
+        }
+
+        function dragLeave(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const dropTarget = event.target.closest('.topic-item, .orphan-topic-item');
+            if (dropTarget) {
+                dropTarget.classList.remove('drag-over');
+            }
+        }
+
+        function drop(event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const draggedTopicId = event.dataTransfer.getData("text");
+            const dropTarget = event.target.closest('.topic-item, .orphan-topic-item');
+            
+            if (dropTarget) {
+                let targetTopicId = dropTarget.getAttribute("data-topic-id");
+                dropTarget.classList.remove('drag-over');
+
+                // Check if we're dropping onto the orphaned topics area
+                if (!targetTopicId && dropTarget.closest('.column:first-child')) {
+                    targetTopicId = '';  // Set to empty string for orphaned topics
+                }
+
+                if (draggedTopicId !== targetTopicId) {
+                    updateTopicParent(draggedTopicId, targetTopicId);
+                }
+            }
+        }
+
+        function updateTopicParent(childTopicId, parentTopicId) {
+            const body = parentTopicId === '' 
+                ? `topic_id=${childTopicId}&parent_id=`
+                : `topic_id=${childTopicId}&parent_id=${parentTopicId}`;
+
+            fetch('/topic-manager/update-topic-parent/', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: body
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log(`Topic successfully moved.`);
+                    location.reload();
+                } else {
+                    console.error(`Error updating topic parent: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error(`Error updating topic parent: ${error}`);
+            });
+        }
+
+        function sortChildTopics(parentElement) {
+            const topicItems = Array.from(parentElement.children);
+            topicItems.sort((a, b) => {
+                const nameA = a.querySelector('.topic-name, .orphan-topic-name')?.textContent.toLowerCase() || '';
+                const nameB = b.querySelector('.topic-name, .orphan-topic-name')?.textContent.toLowerCase() || '';
+                return nameA.localeCompare(nameB);
+            });
+            topicItems.forEach(item => parentElement.appendChild(item));
+        }
+
+        function fuzzyMatch(str, pattern) {
+            pattern = pattern.toLowerCase();
+            str = str.toLowerCase();
+            let patternIdx = 0;
+            let strIdx = 0;
+            while (patternIdx < pattern.length && strIdx < str.length) {
+                if (pattern[patternIdx] === str[strIdx]) {
+                    patternIdx++;
+                }
+                strIdx++;
+            }
+            return patternIdx === pattern.length;
+        }
+
+        function filterTopics(input, type) {
+            const filterValue = input.value.toLowerCase();
+            localStorage.setItem(type + '-filter', filterValue);
+            const topicsList = document.getElementById(type === 'orphaned' ? 'orphaned-topics-list' : 'connected-topics-list');
+            const topics = topicsList.querySelectorAll('li');
+
+            topics.forEach(topic => {
+                const topicName = topic.querySelector('.topic-name, .orphan-topic-name').textContent;
+                if (fuzzyMatch(topicName, filterValue)) {
+                    topic.style.display = '';
+                    topic.dataset.matchesFilter = 'true';
+                } else {
+                    topic.style.display = 'none';
+                    topic.dataset.matchesFilter = 'false';
+                }
+            });
+
+            if (type === 'connected') {
+                updateParentVisibility(topicsList);
+            }
+
+            // Restore previous state if filter is empty
+            if (filterValue === '') {
+                restorePreviousState(topicsList);
+            }
+        }
+
+        function restorePreviousState(topicsList) {
+            const toggles = topicsList.querySelectorAll('.toggle');
+            toggles.forEach(function(toggle) {
+                const topicId = toggle.getAttribute('data-topic-id');
+                const savedState = localStorage.getItem('topic_' + topicId);
+                const childrenList = toggle.closest('.topic-item').querySelector('.children');
+                
+                if (childrenList) {
+                    if (savedState === 'collapsed') {
+                        toggle.textContent = '+';
+                        childrenList.style.display = 'none';
+                    } else {
+                        toggle.textContent = '-';
+                        childrenList.style.display = 'block';
+                    }
+                }
+            });
+        }
+
+        function updateParentVisibility(topicsList) {
+            const allTopics = topicsList.querySelectorAll('.topic-item');
+            allTopics.forEach(topic => {
+                const hasMatchingDescendant = topic.querySelector('li[data-matches-filter="true"]');
+                if (hasMatchingDescendant || topic.dataset.matchesFilter === 'true') {
+                    showParentChain(topic);
+                } else {
+                    // Restore the saved state for non-matching topics
+                    const toggle = topic.querySelector('.toggle');
+                    if (toggle) {
+                        const topicId = toggle.getAttribute('data-topic-id');
+                        const savedState = localStorage.getItem('topic_' + topicId);
+                        const childrenList = topic.querySelector('.children');
+                        if (childrenList) {
+                            if (savedState === 'collapsed') {
+                                toggle.textContent = '+';
+                                childrenList.style.display = 'none';
+                            } else {
+                                toggle.textContent = '-';
+                                childrenList.style.display = 'block';
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function showParentChain(element) {
+            while (element && !element.classList.contains('root-list')) {
+                if (element.style.display === 'none') {
+                    element.style.display = '';
+                }
+                if (element.classList.contains('children')) {
+                    const parentToggle = element.parentElement.querySelector('.toggle');
+                    if (parentToggle) {
+                        parentToggle.textContent = '-';
+                    }
+                }
+                element = element.parentElement;
+            }
+        }
+
+        function loadSavedFilters() {
+            const orphanedFilter = localStorage.getItem('orphaned-filter') || '';
+            const connectedFilter = localStorage.getItem('connected-filter') || '';
+
+            document.getElementById('orphaned-filter').value = orphanedFilter;
+            document.getElementById('connected-filter').value = connectedFilter;
+
+            if (orphanedFilter) {
+                filterTopics(document.getElementById('orphaned-filter'), 'orphaned');
+            }
+            if (connectedFilter) {
+                filterTopics(document.getElementById('connected-filter'), 'connected');
+            }
+        }
+
+        function updateConnectedTopicsCount() {
+            const connectedTopics = document.querySelectorAll('#connected-topics-list .topic-item');
+            const count = connectedTopics.length;
+            document.getElementById('connected-topics-count').textContent = count;
+        }
+    </script>
+</body>
+</html>

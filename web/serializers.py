@@ -40,6 +40,8 @@ class FeedItemSerializer(TimestampedSerializer):
 
 class CategorySerializer(serializers.ModelSerializer):
     clip_count = serializers.SerializerMethodField(read_only=True)
+    user_friendly_name = serializers.SerializerMethodField(read_only=True)
+    user_friendly_parent_name = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Category
@@ -55,6 +57,13 @@ class CategorySerializer(serializers.ModelSerializer):
 
     def get_clip_count(self, obj):
         return getattr(obj, "clip_count", None)
+
+    # These are for backwards compatibility
+    def get_user_friendly_name(self, obj):
+        return obj.name
+
+    def get_user_friendly_parent_name(self, obj):
+        return obj.parent.name if obj.parent else None
 
 
 class ClipCategoryScoreSerializer(serializers.ModelSerializer):

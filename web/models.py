@@ -1,7 +1,8 @@
-from django.db import models, connection
+from django.db import models
 from django.utils import timezone
 from django.contrib.auth.models import User
 from pgvector.django import VectorField, HnswIndex
+from django.contrib.postgres.fields import ArrayField
 
 def default_vector():
     # 768 is from nomic-embed-text-v1.5-Q in embed.py
@@ -154,24 +155,20 @@ class FeedUserInterest(models.Model):
     
 
 class Category(models.Model):
-    name = models.CharField(max_length=255)
-    parent = models.ForeignKey('self', on_delete=models.CASCADE, related_name='children', null=True, blank=True)
-    user_friendly_name = models.CharField(max_length=255, null=True, blank=True)
-    user_friendly_parent_name = models.CharField(max_length=255, null=True, blank=True)
+    name = models.CharField(max_length=255, unique=True)
+    description = models.TextField(blank=True, null=True)
+    embedding = VectorField(dimensions=768, default=default_vector)
+    parent = models.ForeignKey('self', on_delete=models.SET_NULL, related_name='children', null=True, blank=True)
     should_display = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return self.name
 
-    @property
-    def display_name(self):
-        if self.user_friendly_name:
-            return self.user_friendly_name
-        else:
-            return self.name.replace("/Other", "").split("/")[-1]
-
     class Meta:
         unique_together = ('name', 'parent')
+        verbose_name_plural = "Categories"
 
 class ClipCategoryScore(models.Model):
     clip = models.ForeignKey(Clip, on_delete=models.CASCADE)
@@ -184,7 +181,7 @@ class ClipCategoryScore(models.Model):
         unique_together = ('clip', 'category')
 
     def __str__(self):
-        return f'{self.clip.name} - {self.category.display_name}: {self.score}'
+        return f'{self.clip.name} - {self.category.name}: {self.score}'
     
 
 class UserCategoryScore(models.Model):
@@ -199,3 +196,55 @@ class UserCategoryScore(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.category.name}: {self.score}"
+
+class Topic(models.Model):
+    name = models.CharField(max_length=255, unique=True)
+    keywords = ArrayField(models.CharField(max_length=100), blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    embedding = VectorField(dimensions=768, default=default_vector)
+    parent = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='children')
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+    def is_descendant_of(self, potential_ancestor):
+        """
+        Check if this topic is a descendant of the potential_ancestor.
+        """
+        if self == potential_ancestor:
+            return True
+        current = self.parent
+        while current:
+            if current == potential_ancestor:
+                return True
+            current = current.parent
+        return False
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['name']),
+            models.Index(fields=['parent']),
+            HnswIndex(
+                name='topic_embedding_idx',
+                fields=['embedding'],
+                m=16,
+                ef_construction=64,
+                opclasses=['vector_cosine_ops']
+            ),
+        ]
+
+class ClipTopicScore(models.Model):
+    clip = models.ForeignKey(Clip, on_delete=models.CASCADE)
+    topic = models.ForeignKey(Topic, on_delete=models.CASCADE)
+    score = models.FloatField()
+    is_primary = models.BooleanField(default=False)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('clip', 'topic')
+
+    def __str__(self):
+        return f'{self.clip.name} - {self.topic.name}: {self.score} ({"Primary" if self.is_primary else "Mentioned"})'

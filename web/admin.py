@@ -5,7 +5,7 @@ from django.contrib.admin import SimpleListFilter
 from django.contrib.auth import get_user_model
 from django.utils.html import format_html
 from django.urls import reverse
-from django.db.models import Count, BooleanField, Exists, OuterRef
+from django.db.models import Count, BooleanField, Exists, OuterRef, Q
 from django.db.models.functions import Cast
 from pgvector.django import L2Distance
 from web.tasks.crawler_tasks import recalculate_feed_embedding_and_topics
@@ -24,6 +24,8 @@ from .models import (
     Category,
     ClipCategoryScore,
     UserCategoryScore,
+    Topic,
+    ClipTopicScore,
 )
 
 
@@ -305,11 +307,38 @@ class ClipAdmin(admin.ModelAdmin):
         "get_duration",
         "get_audio_url",
         "get_category_scores_count",
+        "get_topic_scores_count",
         "created_at",
     )
     list_filter = ("created_at",)
     search_fields = ("name", "body")
     exclude = ("transcript_embedding",)  # some pg-vector bug breaks the admin
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        queryset = queryset.annotate(
+            category_scores_count=Count("clipcategoryscore", distinct=True),
+            topic_scores_count=Count("cliptopicscore", distinct=True),
+        )
+        return queryset
+
+    @admin.display(
+        ordering="category_scores_count", description="Category Scores Count"
+    )
+    def get_category_scores_count(self, obj):
+        url = (
+            reverse("admin:web_clipcategoryscore_changelist")
+            + f"?clip__id__exact={obj.id}"
+        )
+        return format_html('<a href="{}">{}</a>', url, obj.category_scores_count)
+
+    @admin.display(ordering="topic_scores_count", description="Topic Scores Count")
+    def get_topic_scores_count(self, obj):
+        url = (
+            reverse("admin:web_cliptopicscore_changelist")
+            + f"?clip__id__exact={obj.id}"
+        )
+        return format_html('<a href="{}">{}</a>', url, obj.topic_scores_count)
 
     def get_feed_item_name(self, obj):
         return obj.feed_item.name
@@ -320,15 +349,6 @@ class ClipAdmin(admin.ModelAdmin):
     def get_audio_url(self, obj):
         url = f"{settings.R2_BUCKET_URL}/{quote(obj.audio_bucket_key)}"
         return format_html('<a href="{}" target="_blank">Bucket</a>', url)
-
-    @admin.display(description="Category Scores Count")
-    def get_category_scores_count(self, obj):
-        count = obj.clipcategoryscore_set.count()
-        url = (
-            reverse("admin:web_clipcategoryscore_changelist")
-            + f"?clip__id__exact={obj.id}"
-        )
-        return format_html('<a href="{}">{}</a>', url, count)
 
     get_feed_item_name.admin_order_field = "feed_item__name"
     get_feed_item_name.short_description = "Feed Item Name"
@@ -402,22 +422,45 @@ class FeedTopicAdmin(admin.ModelAdmin):
     get_feed_name.short_description = "Feed"
 
 
+class HasParentFilter(admin.SimpleListFilter):
+    title = "Has Parent"
+    parameter_name = "has_parent"
+
+    def lookups(self, request, model_admin):
+        return (
+            ("yes", "Yes"),
+            ("no", "No"),
+        )
+
+    def queryset(self, request, queryset):
+        if self.value() == "yes":
+            return queryset.filter(parent__isnull=False)
+        if self.value() == "no":
+            return queryset.filter(parent__isnull=True)
+
+
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
     list_display = (
-        "display_name",
-        "should_display",
         "name",
         "parent_link",
-        "user_friendly_name",
+        "description",
+        "get_clip_count",
+        "should_display",
+        "created_at",
+        "updated_at",
     )
-    search_fields = (
-        "name",
-        "user_friendly_name",
-        "user_friendly_parent_name",
-        "parent__name",
-    )
-    list_filter = ("should_display",)
+    list_filter = ("created_at", "updated_at", HasParentFilter, "should_display")
+    search_fields = ("name", "description", "parent__name")
+    exclude = ("embedding",)
+    actions = ["set_should_display_true", "set_should_display_false"]
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        queryset = queryset.annotate(
+            clip_count=Count("clipcategoryscore", distinct=True)
+        )
+        return queryset
 
     def parent_link(self, obj):
         if obj.parent:
@@ -426,6 +469,27 @@ class CategoryAdmin(admin.ModelAdmin):
         return "-"
 
     parent_link.short_description = "Parent"
+    parent_link.admin_order_field = "parent__name"
+
+    def get_clip_count(self, obj):
+        url = (
+            reverse("admin:web_clipcategoryscore_changelist")
+            + f"?category__id__exact={obj.id}"
+        )
+        return format_html('<a href="{}">{}</a>', url, obj.clip_count)
+
+    get_clip_count.short_description = "Clips"
+    get_clip_count.admin_order_field = "clip_count"
+
+    @admin.action(description="Set selected categories to display")
+    def set_should_display_true(self, request, queryset):
+        updated = queryset.update(should_display=True)
+        self.message_user(request, f"{updated} categories were set to display.")
+
+    @admin.action(description="Set selected categories to not display")
+    def set_should_display_false(self, request, queryset):
+        updated = queryset.update(should_display=False)
+        self.message_user(request, f"{updated} categories were set to not display.")
 
 
 @admin.register(ClipCategoryScore)
@@ -440,3 +504,105 @@ class UserCategoryScoreAdmin(admin.ModelAdmin):
     list_display = ("user", "category", "score", "created_at")
     list_filter = ("created_at",)
     search_fields = ("user__username", "category__name")
+
+
+@admin.register(Topic)
+class TopicAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "get_parent_name",
+        "get_keywords",
+        "get_description_preview",
+        "primary_clip_count",
+        "non_primary_clip_count",
+        "total_clip_count",
+        "created_at",
+        "updated_at",
+    )
+    list_filter = ("created_at", "updated_at", HasParentFilter)
+    search_fields = (
+        "name",
+        "keywords",
+        "description",
+        "parent__name",
+    )
+    exclude = ("embedding",)
+
+    def get_queryset(self, request):
+        queryset = super().get_queryset(request)
+        queryset = queryset.annotate(
+            primary_clips=Count(
+                "cliptopicscore", filter=Q(cliptopicscore__is_primary=True)
+            ),
+            non_primary_clips=Count(
+                "cliptopicscore", filter=Q(cliptopicscore__is_primary=False)
+            ),
+            total_clips=Count("cliptopicscore"),
+        )
+        return queryset
+
+    def get_parent_name(self, obj):
+        if obj.parent:
+            url = reverse("admin:web_topic_change", args=[obj.parent.id])
+            return format_html('<a href="{}">{}</a>', url, obj.parent.name)
+        return "-"
+
+    get_parent_name.short_description = "Parent Topic"
+    get_parent_name.admin_order_field = "parent__name"
+
+    def primary_clip_count(self, obj):
+        url = (
+            reverse("admin:web_cliptopicscore_changelist")
+            + f"?topic__id__exact={obj.id}&is_primary__exact=1"
+        )
+        return format_html('<a href="{}">{}</a>', url, obj.primary_clips)
+
+    primary_clip_count.admin_order_field = "primary_clips"
+    primary_clip_count.short_description = "Primary Clips"
+
+    def non_primary_clip_count(self, obj):
+        url = (
+            reverse("admin:web_cliptopicscore_changelist")
+            + f"?topic__id__exact={obj.id}&is_primary__exact=0"
+        )
+        return format_html('<a href="{}">{}</a>', url, obj.non_primary_clips)
+
+    non_primary_clip_count.admin_order_field = "non_primary_clips"
+    non_primary_clip_count.short_description = "Non-Primary Clips"
+
+    def total_clip_count(self, obj):
+        url = (
+            reverse("admin:web_cliptopicscore_changelist")
+            + f"?topic__id__exact={obj.id}"
+        )
+        return format_html('<a href="{}">{}</a>', url, obj.total_clips)
+
+    total_clip_count.admin_order_field = "total_clips"
+    total_clip_count.short_description = "Total Clips"
+
+    def get_keywords(self, obj):
+        if obj.keywords:
+            return ", ".join(obj.keywords[:5]) + (
+                "..." if len(obj.keywords) > 5 else ""
+            )
+        return "No keywords"
+
+    get_keywords.short_description = "Keywords"
+
+    def get_description_preview(self, obj):
+        if obj.description:
+            return (
+                obj.description[:100] + "..."
+                if len(obj.description) > 100
+                else obj.description
+            )
+        return "No description"
+
+    get_description_preview.short_description = "Description Preview"
+
+
+@admin.register(ClipTopicScore)
+class ClipTopicScoreAdmin(admin.ModelAdmin):
+    list_display = ("clip", "topic", "score", "is_primary", "created_at")
+    list_filter = ("created_at", "is_primary")
+    search_fields = ("clip__name", "topic__name")

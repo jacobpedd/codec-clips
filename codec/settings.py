@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework.authtoken",
     "web.apps.WebConfig",
+    "topic_manager.apps.TopicManagerConfig",
 ]
 
 MIDDLEWARE = [
@@ -69,7 +70,10 @@ ROOT_URLCONF = "codec.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [
+            BASE_DIR / "templates",
+            BASE_DIR / "web" / "templates",
+        ],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -91,7 +95,7 @@ if DEBUG:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql_psycopg2",
-            "NAME": "codec",            
+            "NAME": "codec",
             "USER": "codec",
             "PASSWORD": "codec",
             "HOST": "localhost",
@@ -204,6 +208,7 @@ LANGSMITH_API_KEY = env("LANGSMITH_API_KEY")
 LANGCHAIN_TRACING_V2 = True
 LOGSNAG_API_KEY = env("LOGSNAG_API_KEY")
 GCLOUD_API_KEY = env("GCLOUD_API_KEY")
+ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY")
 
 if not DEBUG:
     # Sentry

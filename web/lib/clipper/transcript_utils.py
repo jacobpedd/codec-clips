@@ -1,3 +1,7 @@
+from web.lib.r2 import get_audio_transcript
+from web.models import Clip
+
+
 def format_transcript_prompt(transcript: list):
     format_transcript = ""
 
@@ -171,18 +175,37 @@ def format_episode_description(description: str) -> str:
     import re
 
     # Remove common HTML tags
-    description = re.sub(r'</?(?:p|span|em|br|a|strong)[^>]*>', '', description)
-    
+    description = re.sub(r"</?(?:p|span|em|br|a|strong)[^>]*>", "", description)
+
     # Remove hashtag phrases
-    description = re.sub(r'#\w+', '', description)
-    
+    description = re.sub(r"#\w+", "", description)
+
     # Remove extra whitespace
-    description = re.sub(r'\s+', ' ', description).strip()
+    description = re.sub(r"\s+", " ", description).strip()
 
     # Remove links
-    description = re.sub(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', '[LINK]', description)
+    description = re.sub(
+        r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+",
+        "[LINK]",
+        description,
+    )
 
     if len(description) > 500:
         description = description[:497] + "..."
-    
+
     return description
+
+
+def get_clip_transcript_text(clip: Clip) -> str:
+    transcript = get_audio_transcript(clip.feed_item.transcript_bucket_key)
+    clip_transcript, _ = format_clip_prompt(
+        transcript, {"start": clip.start_time, "end": clip.end_time}, max_mins=0
+    )
+    text = ""
+    for line in clip_transcript.split("\n"):
+        if line.startswith("<") or line.startswith("#") or line.strip() == "":
+            continue
+        else:
+            _, line_text = line.split(" ", 1)
+            text += line_text + " "
+    return text.strip()

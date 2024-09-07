@@ -1,0 +1,69 @@
+<ul id="topicTree">
+{% for node in topics|dictsort:"topic.name" %}
+    <li class="topic-item" data-topic-id="{{ node.topic.id }}" draggable="true">
+        <div class="topic-content">
+            {% if node.children %}
+                <span class="toggle" onclick="toggleChildren(this, '{{ node.topic.id }}')" data-topic-id="{{ node.topic.id }}">-</span>
+            {% else %}
+                <span class="toggle-placeholder"></span>
+            {% endif %}
+            <span class="topic-name">{{ node.topic.name }}</span>
+            {% if not node.children %}
+                <span class="delete-button" onclick="deleteTopic('{{ node.topic.id }}')">✕</span>
+            {% endif %}
+        </div>
+        {% if node.children %}
+            <ul class="children">
+                {% include "topic_manager/topic_tree.html" with topics=node.children|dictsort:"topic.name" %}
+            </ul>
+        {% endif %}
+    </li>
+{% endfor %}
+</ul>
+
+<script>
+// Save scroll positions before page unload
+window.addEventListener('beforeunload', function() {
+    const topicTree = document.getElementById('topicTree');
+    localStorage.setItem('topicTreeScrollPosition', topicTree.scrollTop);
+});
+
+// Restore scroll positions after page load
+window.addEventListener('load', function() {
+    const topicTree = document.getElementById('topicTree');
+    if (localStorage.getItem('topicTreeScrollPosition') !== null) {
+        topicTree.scrollTop = localStorage.getItem('topicTreeScrollPosition');
+    }
+});
+
+function dragStart(event) {
+    event.dataTransfer.setData("text/plain", event.target.closest('.topic-item').dataset.topicId);
+}
+
+function dragOver(event) {
+    event.preventDefault();
+    event.currentTarget.classList.add('drag-over');
+}
+
+function dragLeave(event) {
+    event.currentTarget.classList.remove('drag-over');
+}
+
+function drop(event) {
+    event.preventDefault();
+    const draggedTopicId = event.dataTransfer.getData("text");
+    const targetTopicId = event.currentTarget.closest('.topic-item').dataset.topicId;
+    event.currentTarget.classList.remove('drag-over');
+
+    if (draggedTopicId !== targetTopicId) {
+        // Call your backend API to update the topic hierarchy
+        updateTopicHierarchy(draggedTopicId, targetTopicId);
+    }
+}
+
+function updateTopicHierarchy(draggedTopicId, targetTopicId) {
+    // Implement the API call to update the topic hierarchy
+    // This is where you'd send a request to your Django backend
+    console.log(`Move topic ${draggedTopicId} under topic ${targetTopicId}`);
+}
+</script>
