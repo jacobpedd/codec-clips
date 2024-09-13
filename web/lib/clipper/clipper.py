@@ -10,7 +10,7 @@ from .add_metadata import add_metadata
 
 @traceable
 def clipper(
-    transcript: list, feed_item: FeedItem, max_iters: int = 10, max_retries: int = 1
+    transcript: list, feed_item: FeedItem, max_iters: int = 5, max_retries: int = 1
 ):
     # Generate clips with retries
     for attempt in range(max_retries):
